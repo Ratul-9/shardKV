@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        preset: [debug, asan, ubsan, tsan]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }} -j
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+
+  benchmark-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake --preset release
+      - run: cmake --build --preset release -j
+      # Smoke run only: proves the benchmarks execute. CI numbers are NOT used for the CV.
+      - run: ./build/release/bench/histogram_bench --benchmark_min_time=0.05s

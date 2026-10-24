@@ -1,0 +1,2 @@
+add_executable(histogram_bench histogram_bench.cpp)
+target_link_libraries(histogram_bench PRIVATE lldstore_common benchmark::benchmark benchmark::benchmark_main)
