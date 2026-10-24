@@ -5,3 +5,7 @@ add_executable(common_tests
   open_loop_test.cpp)
 target_link_libraries(common_tests PRIVATE lldstore_common GTest::gtest_main)
 gtest_discover_tests(common_tests)
+
+add_executable(store_tests store_test.cpp)
+target_link_libraries(store_tests PRIVATE lldstore_common GTest::gtest_main)
+gtest_discover_tests(store_tests)

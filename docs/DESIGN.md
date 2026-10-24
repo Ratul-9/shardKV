@@ -26,6 +26,16 @@ Decision log and trade-offs. Each entry: what we chose, what we rejected, and wh
 
 ---
 
+## D-002: `Store::Get` returns `std::optional<std::string_view>` (2026-10-25)
+
+**Chosen (by Ratul):** `Get` returns a non-owning view into the store. Keys and values passed in are also `string_view`.
+**Rejected:** `std::optional<std::string>` (copy per lookup).
+**Why:** a caller usually wants to use the value, not own a copy; no allocation on the read path.
+**Cost / consequences:** the view is invalidated by any later `Put` to that key or `Delete`. This is fine single-threaded. In Phase 2 a thread-safe wrapper must copy under the lock before returning to a gRPC handler. Revisit when the shard worker owns the data (Phase 3) and again for the epoch-based reader (Phase 9).
+**Implementation note:** looking up a `std::unordered_map<std::string, ...>` by `string_view` allocates a temporary `std::string` unless the map uses a transparent hash and equality (C++20 heterogeneous lookup).
+
+---
+
 ## Open questions
 
 - Apple clang version and whether `std::hardware_destructive_interference_size` is available (depends on toolchain). To verify in Phase 0.

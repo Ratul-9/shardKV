@@ -270,3 +270,4 @@ Every number I eventually put on the CV must come with: the command that produce
 - `docs/DESIGN.md`: decision log and trade-offs
 - `docs/BENCHMARKS.md`: every measurement, with context
 - `docs/INTERVIEW_NOTES.md`: drills, answers, corrections
+- `docs/LEARNING_NOTES.md`: knowledge database. Per phase: Topics Studied (CS:APP chapters / resources), Key Insights, Mistakes & Fixes, Code References, then "End of Phase N". Also record what Ratul has answered correctly, refined or got wrong. Update at the end of every phase.
