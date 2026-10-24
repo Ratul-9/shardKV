@@ -1,0 +1,26 @@
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-10-25T02:00:54+05:30
+Running ./build/release/bench/histogram_bench
+Run on (10 X 24 MHz CPU s)
+CPU Caches:
+  L1 Data 64 KiB
+  L1 Instruction 128 KiB
+  L2 Unified 6144 KiB (x10)
+Load Average: 1.93, 1.97, 1.90
+------------------------------------------------------------------------
+Benchmark                              Time             CPU   Iterations
+------------------------------------------------------------------------
+BM_HistogramRecord_mean             1.19 ns         1.19 ns            5
+BM_HistogramRecord_median           1.19 ns         1.19 ns            5
+BM_HistogramRecord_stddev          0.001 ns        0.001 ns            5
+BM_HistogramRecord_cv               0.09 %          0.09 %             5
+BM_HistogramPercentile_mean          299 ns          299 ns            5
+BM_HistogramPercentile_median        299 ns          299 ns            5
+BM_HistogramPercentile_stddev      0.372 ns        0.376 ns            5
+BM_HistogramPercentile_cv           0.12 %          0.13 %             5
+BM_SteadyClockNow_mean              12.5 ns         12.5 ns            5
+BM_SteadyClockNow_median            12.5 ns         12.5 ns            5
+BM_SteadyClockNow_stddev           0.170 ns        0.161 ns            5
+BM_SteadyClockNow_cv                1.36 %          1.28 %             5

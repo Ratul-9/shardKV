@@ -1,0 +1,66 @@
+Unable to determine clock rate from sysctl: hw.cpufrequency: No such file or directory
+This does not affect benchmark measurements, only the metadata output.
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+2026-10-25T01:59:09+05:30
+Running ./build/release/bench/store_bench
+Run on (10 X 24 MHz CPU s)
+CPU Caches:
+  L1 Data 64 KiB
+  L1 Instruction 128 KiB
+  L2 Unified 6144 KiB (x10)
+Load Average: 2.63, 2.01, 1.91
+---------------------------------------------------------------------------------
+Benchmark                                       Time             CPU   Iterations
+---------------------------------------------------------------------------------
+BM_KeyGenOnly/1000_mean                      11.2 ns         11.2 ns            5
+BM_KeyGenOnly/1000_median                    11.1 ns         11.1 ns            5
+BM_KeyGenOnly/1000_stddev                   0.236 ns        0.205 ns            5
+BM_KeyGenOnly/1000_cv                        2.09 %          1.82 %             5
+BM_KeyGenOnly/100000_mean                    11.1 ns         11.1 ns            5
+BM_KeyGenOnly/100000_median                  11.1 ns         11.1 ns            5
+BM_KeyGenOnly/100000_stddev                 0.021 ns        0.021 ns            5
+BM_KeyGenOnly/100000_cv                      0.19 %          0.19 %             5
+BM_KeyGenOnly/1000000_mean                   11.2 ns         11.1 ns            5
+BM_KeyGenOnly/1000000_median                 11.1 ns         11.1 ns            5
+BM_KeyGenOnly/1000000_stddev                0.196 ns        0.171 ns            5
+BM_KeyGenOnly/1000000_cv                     1.76 %          1.54 %             5
+BM_GetHit/1000_mean                          14.2 ns         14.1 ns            5
+BM_GetHit/1000_median                        14.2 ns         14.1 ns            5
+BM_GetHit/1000_stddev                       0.015 ns        0.013 ns            5
+BM_GetHit/1000_cv                            0.10 %          0.09 %             5
+BM_GetHit/100000_mean                        25.3 ns         25.2 ns            5
+BM_GetHit/100000_median                      24.9 ns         24.9 ns            5
+BM_GetHit/100000_stddev                     0.734 ns        0.640 ns            5
+BM_GetHit/100000_cv                          2.90 %          2.54 %             5
+BM_GetHit/1000000_mean                       84.3 ns         84.0 ns            5
+BM_GetHit/1000000_median                     85.5 ns         85.2 ns            5
+BM_GetHit/1000000_stddev                     4.23 ns         4.12 ns            5
+BM_GetHit/1000000_cv                         5.02 %          4.91 %             5
+BM_GetMiss/1000_mean                         19.1 ns         19.1 ns            5
+BM_GetMiss/1000_median                       19.1 ns         19.1 ns            5
+BM_GetMiss/1000_stddev                      0.038 ns        0.037 ns            5
+BM_GetMiss/1000_cv                           0.20 %          0.19 %             5
+BM_GetMiss/100000_mean                       30.7 ns         30.6 ns            5
+BM_GetMiss/100000_median                     30.5 ns         30.4 ns            5
+BM_GetMiss/100000_stddev                    0.421 ns        0.389 ns            5
+BM_GetMiss/100000_cv                         1.37 %          1.27 %             5
+BM_GetMiss/1000000_mean                      70.6 ns         70.5 ns            5
+BM_GetMiss/1000000_median                    70.4 ns         70.4 ns            5
+BM_GetMiss/1000000_stddev                   0.636 ns        0.636 ns            5
+BM_GetMiss/1000000_cv                        0.90 %          0.90 %             5
+BM_PutOverwrite/1000_mean                    16.8 ns         16.7 ns            5
+BM_PutOverwrite/1000_median                  16.7 ns         16.7 ns            5
+BM_PutOverwrite/1000_stddev                 0.247 ns        0.232 ns            5
+BM_PutOverwrite/1000_cv                      1.47 %          1.39 %             5
+BM_PutOverwrite/100000_mean                  32.4 ns         32.3 ns            5
+BM_PutOverwrite/100000_median                32.2 ns         32.2 ns            5
+BM_PutOverwrite/100000_stddev               0.696 ns        0.669 ns            5
+BM_PutOverwrite/100000_cv                    2.15 %          2.07 %             5
+BM_PutOverwrite/1000000_mean                  126 ns          126 ns            5
+BM_PutOverwrite/1000000_median                124 ns          124 ns            5
+BM_PutOverwrite/1000000_stddev               5.82 ns         5.77 ns            5
+BM_PutOverwrite/1000000_cv                   4.60 %          4.57 %             5
+BM_PutInsert/iterations:1000000_mean          144 ns          141 ns            5
+BM_PutInsert/iterations:1000000_median        139 ns          139 ns            5
+BM_PutInsert/iterations:1000000_stddev       15.6 ns         10.1 ns            5
+BM_PutInsert/iterations:1000000_cv          10.80 %          7.15 %             5

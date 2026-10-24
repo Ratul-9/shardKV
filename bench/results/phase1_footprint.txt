@@ -1,0 +1,12 @@
+### footprint keys=1000
+keys=1000 payload/entry=80 B
+requested bytes/entry=148.8 (overhead 1.86x)  allocations/entry=2.01
+RSS delta/entry=262.1 B (overhead 3.28x)
+### footprint keys=100000
+keys=100000 payload/entry=80 B
+requested bytes/entry=144.2 (overhead 1.80x)  allocations/entry=2.00
+RSS delta/entry=195.5 B (overhead 2.44x)
+### footprint keys=1000000
+keys=1000000 payload/entry=80 B
+requested bytes/entry=149.2 (overhead 1.86x)  allocations/entry=2.00
+RSS delta/entry=203.9 B (overhead 2.55x)

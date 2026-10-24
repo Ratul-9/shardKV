@@ -1,0 +1,11 @@
+### store_latency keys=1000
+keys=1000 offered=200000 ops/s achieved=200000 ops/s measured_ops=2000000
+latency ns: min=0 p50=42 p90=42 p99=209 p999=36351 max=871583 mean=287
+### store_latency keys=100000
+keys=100000 offered=200000 ops/s achieved=200000 ops/s measured_ops=2000000
+latency ns: min=0 p50=251 p90=503 p99=1167 p999=37887 max=1235209 mean=607
+### store_latency keys=1000000
+keys=1000000 offered=200000 ops/s achieved=200000 ops/s measured_ops=2000000
+latency ns: min=0 p50=375 p90=543 p99=879 p999=44543 max=1638875 mean=814
+keys=1000000 offered=200000 ops/s achieved=200000 ops/s measured_ops=2000000
+latency ns: min=0 p50=459 p90=631 p99=919 p999=49663 max=1012375 mean=734

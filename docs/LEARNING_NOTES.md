@@ -58,34 +58,68 @@ Legend: **[Knew]** you stated it correctly, **[Refined]** you were right but it 
 
 ---
 
-## Phase 1: Single-threaded baseline store  (IN PROGRESS)
+## Phase 1: Single-threaded baseline store  (code done, waiting for the drill)
 
 ### Topics Studied
 - `std::unordered_map` memory layout: bucket array plus separately allocated nodes, pointer chasing, cache misses. CS:APP Ch. 6 (cache-friendly code, pp. ___) and Ch. 9 (dynamic allocation, pp. ___).
-- Cache sizes on this machine (Apple M5, from the benchmark header): L1D 64 KB, L1I 128 KB, L2 6 MB per core group. Used to pick the working-set sizes.
-- API ownership: owning copy (`optional<string>`) vs non-owning view (`optional<string_view>`), and view invalidation. cppreference `std::string_view`. Not in CS:APP.
-- Heterogeneous lookup for unordered containers (C++20): transparent hash and equality avoid a temporary `std::string` per lookup. cppreference `unordered_map::find`. Not in CS:APP.
-- Microbenchmark pitfalls: working-set size vs cache, key generation cost, random access pattern, prefill. CS:APP Ch. 6 (locality) and Ch. 5 (profiling).
-- Memory footprint: requested bytes (counting `operator new`) vs RSS. CS:APP Ch. 9 (virtual memory, RSS vs virtual size, pp. ___).
+- Cache sizes on this machine: L1D 64 KB, L1I 128 KB, L2 6 MB (benchmark header). Used to choose 1K / 100K / 1M working sets; 1M entries is about 150 MB, far beyond L2.
+- API ownership: owning copy vs non-owning view, view invalidation (cppreference `std::string_view`). Not in CS:APP.
+- Heterogeneous lookup for unordered containers (C++20): transparent hash and equality avoid a temporary key. cppreference `unordered_map::find`. Not in CS:APP.
+- `insert_or_assign` vs `operator[]` vs `emplace` vs erase-then-insert. cppreference. Not in CS:APP.
+- Small-string optimisation (SSO): libc++ inlines strings up to 22 bytes, libstdc++ up to 15, which changes allocation counts between macOS and Linux. Not in CS:APP; CS:APP Ch. 9 covers the allocator side.
+- Microbenchmark design: working-set size vs cache, on-the-fly key generation, random access, prefill, amortised timing. CS:APP Ch. 6 (locality), Ch. 5 (profiling, pp. ___).
+- Memory footprint: requested bytes (counting `operator new`) vs RSS. CS:APP Ch. 9 (virtual memory, RSS, pp. ___).
+- Testing: example tests, edge cases (empty, prefix, NUL bytes, large), model-based random testing, and **mutation testing** (inject bugs to check the tests can fail). Not in CS:APP.
 
-### What you have shown you know (from your answers so far)
+### What you have shown you know
 - **[Knew]** A lookup hashes the key, indexes a bucket, follows a pointer to a node, then compares the key; scattered nodes mean cache misses.
-- **[Refined]** You estimated 1-2 cache misses. A fuller count is 2-4: libc++ buckets point to the node *before* the target (extra hop), keys longer than the inline string buffer need another pointer chase, and the value is a further load. Long chains add more.
+- **[Refined]** You estimated 1-2 cache misses. A fuller count is 2-4 (libc++ buckets point to the node *before* the target; long keys need another hop; the value is a further load).
 - **[Knew]** A view into the store dangles if the store changes while another thread reads it.
-- **[Corrected]** You said views "need to be freed". A `string_view` is non-owning; nothing is freed. The risk is *invalidation*, not leaking: a later `Put` to that key or a `Delete` makes the view point at released or overwritten memory.
-- **[Knew]** All-in-L1 keys would misrepresent a large, memory-bound table. Fix: benchmark 1K / 100K / 1M keys.
+- **[Corrected]** You said views "need to be freed". A `string_view` is non-owning; nothing is freed. The risk is invalidation, not leaking. **[To do]** re-answer: list every operation that invalidates a view.
+- **[Knew]** All-in-L1 keys would misrepresent a large memory-bound table. This is why we measure 1K, 100K and 1M.
+- **[Knew]** Edge cases worth testing: empty key/value, prefix keys, NUL bytes, large values (your first test file covered these well).
 
 ### Key Insights
-- **Design decision D-002:** `Get` returns `std::optional<std::string_view>` (your choice). No allocation on reads, but the view is valid only until the next mutating call. Phase 2's locked wrapper must copy under the lock before replying. See `docs/DESIGN.md`.
-- A string-keyed `unordered_map` looked up by `string_view` allocates a temporary key per `Get` unless the map is transparent. A baseline that pays that cost hides the real map cost; decide deliberately and record it.
-- The benchmark generates keys on the fly instead of keeping a key table, because a key table adds its own cache misses to every lookup. `BM_KeyGenOnly` measures that cost so it can be subtracted.
+- **Latency grows with working set.** Get hit: 14 ns (1K keys) -> 25 ns (100K) -> 84 ns (1M). The 1M figure is the memory-bound number later phases must beat.
+- **A miss can be cheaper or dearer than a hit.** At 1M keys a miss (71 ns) beats a hit (84 ns) because many lookups end at an empty bucket without touching a node. At 1K keys a miss (19 ns) is slower than a hit (14 ns) because it must walk past colliding nodes.
+- **Throughput benchmark vs open-loop latency can disagree, and both are right.** The tight loop gives 84 ns for a Get at 1M keys; the paced open-loop run gave a p50 of 375-459 ns for the same operation, because the core idles for ~5 us between operations (lower clock, colder caches). Quote them for what they are, not interchangeably.
+- **The latency tail on this machine is the OS, not the store.** p999 of 36-50 us and max of 1-1.6 ms on a ~100 ns operation come from scheduling noise (no pinning on macOS).
+- **The clock has a resolution.** `steady_clock` ticks at 24 MHz on this Mac, so values under ~42 ns are quantised (our p50 of 42 ns at 1K keys is one tick).
+- **Subtracting key-generation time is only approximate**, because the CPU overlaps independent work.
+- **Two heap allocations per entry** (node + 64-byte value); about 1.8x payload requested, about 2.5x payload resident. The 16-byte key lives inside the node thanks to SSO on libc++, so the Linux footprint will be worse.
+- **Mutation testing earns its time.** Five injected bugs, all caught, but the randomised test missed one (key truncated to 4 bytes) because its keys were at most 3 characters long. A random test is only as good as its generator.
+- **One source of truth.** Keeping a separate `count_` next to the map created both a typo (`count--`) and a double-count in `Put`. `data_.size()` removes the bug class.
+- **Design decisions:** D-002 string_view, D-003 plain temporary-key lookups in the baseline, D-004 overwrite via `insert_or_assign`, D-005 no separate counter, D-006 test strategy (all in `docs/DESIGN.md`).
 
 ### Mistakes & Fixes
-- (Fill in as you write the store and tests.)
+First draft of `store.h` -> these were found in review:
+- Put and Get ended with the skeleton's `std::abort()` -> remove placeholders when implementing; an unreachable `abort()` in `Get` hid that the function had other bugs.
+- `return std::optional<std::nullopt>;` is not C++ (`nullopt` is a value, not a type) -> `return std::nullopt;`.
+- `data_[std::string(key)]` inside a `const` method can't compile (`operator[]` can insert) -> use the iterator you already have: `it->second`.
+- Looked the key up twice in `Get` (find, then operator[]) and three times in `Put` -> one lookup: `find` + iterator, or `insert_or_assign`.
+- `Put` wrote the value twice (once when inserting, then again unconditionally) -> a single `insert_or_assign`.
+- `count--` typo (the member is `count_`), and `Delete` had no `return true` at the end (undefined behaviour) -> fixed; then removed `count_` entirely.
+- Missing `#include <string>` / `<unordered_map>` in the first draft -> added.
+- `Delete` hashed the key twice (`find`, then `erase(key)`) -> `erase(it)`.
+- Tests compared `size_t` with signed ints (`Size(), 0`) -> use `0u` / `size_t` literals.
+- Test gaps found in review: no randomised model test, no NUL bytes in keys, delete only checked the deleted key, no overwrite with different sizes, no rehash test -> all added (5 new tests).
+
+Tooling lessons:
+- IDE red errors ("no member named optional", "file not found") were the editor parsing without C++20 or project include paths, not real errors. Trust the actual build.
+- While mutation-testing with a script, `make` rebuilt only on one-second timestamps, so rewriting a header within the same second as the previous compile reused a stale object file and gave wrong results (I caught it because two different mutations printed identical output). Fix: compile directly for mutation runs, and sanity-check that results differ when the mutation differs. Never trust a result you didn't see change.
+- BSD `sed` on macOS does not support GNU-only address syntax like `0,/re/`; use Python for scripted edits.
 
 ### Code References
-- Store skeleton for you to implement: `include/lldstore/store.h` (all methods currently `abort()`)
-- Tests to write: `tests/store_test.cpp` (placeholder + checklist)
-- Benchmarks (not yet run): `bench/store_bench.cpp`, `bench/store_latency.cpp`, `bench/footprint.cpp`; shared helpers `bench/bench_util.h` lines 29-46
+- Put (single lookup, overwrite): `include/lldstore/store.h` lines 20-24
+- Get (view into the map's string): `include/lldstore/store.h` lines 27-36
+- Delete (erase by iterator): `include/lldstore/store.h` lines 39-46
+- Size and single source of truth: `include/lldstore/store.h` lines 48 and 51-53
+- Edge-case tests: `tests/store_test.cpp` lines 76-135
+- Rehash test: `tests/store_test.cpp` lines 163-183
+- Randomised model test: `tests/store_test.cpp` lines 186-end
+- Throughput benchmarks: `bench/store_bench.cpp`; open-loop latency: `bench/store_latency.cpp`; footprint: `bench/footprint.cpp`; key helpers: `bench/bench_util.h` lines 29-46
+- Results and interpretation: `docs/BENCHMARKS.md` B-002 to B-004; raw output `bench/results/`
+- Mutation results: `docs/DESIGN.md` D-006
+- Commit: `0eef24b` (code, tests, benchmark tools); drill questions: `docs/INTERVIEW_NOTES.md` (Phase 1)
 
-(Phase 1 section continues; "End of Phase 1" is added when the phase is tagged.)
+(Phase 1 section ends with "End of Phase 1" once the drill is answered and the phase is tagged.)

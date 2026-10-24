@@ -26,3 +26,13 @@
 - Your answer: The scheduler can wake a sleeping thread late; pure spinning burns CPU; combining gives precision at lower cost.
 - Grade: B+.
 - Added detail: Sleeping also frees the core for other threads. The 100 us margin is an untested guess and needs tuning against measured wake-up jitter on each platform.
+
+---
+
+## Phase 1 drill (questions asked, answers pending)
+
+1. Walk through what `std::unordered_map::find` does in memory for a 1M-entry table. Why was a Get hit at 1M keys 84 ns but at 1K keys 14 ns?
+2. `Get` returns a `string_view`. Name every operation that can invalidate it, and say what that means for a multithreaded server.
+3. Why is a lookup miss faster than a hit at 1M keys (71 ns vs 84 ns) but slower at 1K keys (19 ns vs 14 ns)?
+4. The open-loop p50 at 1M keys was 375-459 ns, but the throughput benchmark said 84 ns for the same Get. Explain, and say which number you would quote on a CV and why.
+5. Mutation testing found that the randomised test missed a bug that example tests caught. What was the bug, why did the random test miss it, and how would you fix the random test?

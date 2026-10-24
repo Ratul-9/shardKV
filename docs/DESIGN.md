@@ -36,7 +36,42 @@ Decision log and trade-offs. Each entry: what we chose, what we rejected, and wh
 
 ---
 
+## D-003: Lookups build a temporary `std::string` (no transparent hashing) in the baseline (2026-10-25)
+
+**Chosen:** `Get` and `Delete` do `data_.find(std::string(key))`; `Put` uses `insert_or_assign(std::string(key), value)`.
+**Rejected (for now):** an `unordered_map` with transparent hash and equality (`is_transparent`) so a `string_view` can be looked up without constructing a key.
+**Why:** Phase 1 is the plain baseline. The 16-byte benchmark keys fit libc++'s small-string buffer, so the temporary does not heap-allocate on this platform; the cost is a copy of 16 bytes.
+**Caveat:** with keys longer than the inline buffer (22 bytes on libc++, 15 on libstdc++ / Linux / EC2) every `Get` would allocate. The baseline therefore understates the cost on Linux.
+**Follow-up:** measure a transparent-hash variant as its own experiment before changing the baseline, and record the before/after in `docs/BENCHMARKS.md`. Do not change the baseline code without that measurement.
+
+---
+
+## D-004: Overwrite semantics (2026-10-25)
+
+**Chosen:** `insert_or_assign` assigns the new value into the existing `std::string` mapped value when the key exists.
+**Rejected:** erase-and-insert, which frees and reallocates the node; `operator[]` followed by assignment (an extra lookup for new keys); `emplace` (silently does nothing for an existing key, shown by mutation M2 in `LEARNING_NOTES.md`).
+**Why:** one lookup, and the existing string can reuse its buffer when the new value fits its capacity.
+**Consequence:** a `string_view` previously returned by `Get` for this key is invalidated by the overwrite (the buffer may be reused or reallocated).
+
+---
+
+## D-005: Size is not stored separately (2026-10-25)
+
+**Chosen:** `Size()` returns `data_.size()`.
+**Rejected:** a separate `count_` member.
+**Why:** a second counter must be updated in every mutating path and drifts out of sync as soon as one path is wrong. The earlier draft had exactly this bug class (a `count--` typo, and double-counting in `Put`).
+
+---
+
+## D-006: Test strategy for the baseline (2026-10-25)
+
+**Chosen:** fixed example tests for each behaviour and edge case, plus a randomised model test (100,000 Put/Get/Delete on 50 keys, fixed seed 12345) compared against a reference `std::unordered_map`, run under debug, ASan, UBSan and TSan.
+**Verified by mutation:** five deliberate bugs were injected into `Store` (Delete returns true for a missing key; Put never overwrites; Put truncates at NUL; Get uses only the first 4 key bytes; Size over-counts after Delete). Every mutant was caught by at least two tests. The randomised test caught M1, M2, M3 and M5 but **missed M4** (looking up only the first 4 key bytes), because its keys are `k0`..`k49`, at most 3 characters, so truncation never changes them. M4 was caught only by the fixed example tests (`PrefixKeysAreDistinct`, `LargeValue`, `ManyKeysSurviveRehashing`, `BinaryDataContainingNullCharacter`). So both kinds of test are needed, and the random test's key generator is its weak spot: widen it (variable-length keys, shared prefixes, `\0` bytes) if the key handling changes.
+**Rejected:** relying on line coverage alone.
+
+---
+
 ## Open questions
 
-- Apple clang version and whether `std::hardware_destructive_interference_size` is available (depends on toolchain). To verify in Phase 0.
+- Apple clang is 21.0.0. Whether `std::hardware_destructive_interference_size` is available is still to verify in Phase 5.
 - Which EC2 instance type for the final cluster (ARM Graviton or x86). To decide before Phase 11, after measuring costs.
