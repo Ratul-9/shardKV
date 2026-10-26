@@ -3,7 +3,7 @@
 | Phase | Status | Tag |
 |---|---|---|
 | 0 Foundations and measurement | Done | `phase-0-done` |
-| 1 Single-threaded baseline | Code, tests and baseline measured; **waiting for the Phase 1 interview drill, then tag** | `phase-1-done` (not yet) |
+| 1 Single-threaded baseline Done (drill: 3 of 5 answered) | `phase-1-done` |
 | 2-11 | Not started | |
 
 ## Phase 0 contents
@@ -19,8 +19,8 @@
 - Decisions D-002 to D-006 in `docs/DESIGN.md`.
 
 ## Open issues
-- Phase 1 drill (5 questions) not yet answered; tag `phase-1-done` waits for it.
-- Re-answers owed from earlier drills (see the end of the last chat message and `docs/LEARNING_NOTES.md`).
+- Retry Phase 1 drill Q4 and Q5 (`docs/INTERVIEW_NOTES.md`). Earlier re-answers are self-reported and ungraded.
+- `pp. ___` CS:APP page numbers in `docs/LEARNING_NOTES.md` still blank (Ratul to fill, or drop them).
 - Baseline measured on a not-quiet machine (load ~2-2.6), no core pinning on macOS. Re-measure on Linux before Phase 3 comparisons.
 - Randomised store test only uses keys up to 3 characters (blind spot found by mutation M4).
 - Transparent-hash lookup variant not measured (D-003 follow-up).

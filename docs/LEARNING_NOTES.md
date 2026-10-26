@@ -58,7 +58,7 @@ Legend: **[Knew]** you stated it correctly, **[Refined]** you were right but it 
 
 ---
 
-## Phase 1: Single-threaded baseline store  (code done, waiting for the drill)
+## Phase 1: Single-threaded baseline store
 
 ### Topics Studied
 - `std::unordered_map` memory layout: bucket array plus separately allocated nodes, pointer chasing, cache misses. CS:APP Ch. 6 (cache-friendly code, pp. ___) and Ch. 9 (dynamic allocation, pp. ___).
@@ -75,11 +75,16 @@ Legend: **[Knew]** you stated it correctly, **[Refined]** you were right but it 
 - **[Knew]** A lookup hashes the key, indexes a bucket, follows a pointer to a node, then compares the key; scattered nodes mean cache misses.
 - **[Refined]** You estimated 1-2 cache misses. A fuller count is 2-4 (libc++ buckets point to the node *before* the target; long keys need another hop; the value is a further load).
 - **[Knew]** A view into the store dangles if the store changes while another thread reads it.
-- **[Corrected]** You said views "need to be freed". A `string_view` is non-owning; nothing is freed. The risk is invalidation, not leaking. **[To do]** re-answer: list every operation that invalidates a view.
+- **[Corrected]** You said views "need to be freed". A `string_view` is non-owning; nothing is freed. The risk is invalidation, not leaking. Phase 1 drill: you listed Put/Delete/clear/destruction correctly; a `Put` of a *different* key does not invalidate (node-based map). Re-answers from earlier drills are self-reported, not seen by me.
 - **[Knew]** All-in-L1 keys would misrepresent a large memory-bound table. This is why we measure 1K, 100K and 1M.
 - **[Knew]** Edge cases worth testing: empty key/value, prefix keys, NUL bytes, large values (your first test file covered these well).
 
+- **Drill results:** Q1 B+, Q2 B+, Q3 A-; Q4 and Q5 not answered (model answers in `docs/INTERVIEW_NOTES.md`, retry owed).
+- **[Corrected]** A mutex only fixes view lifetime if it covers the whole use of the view, not just the `Get` call. Copy under the lock.
+- **[Knew]** Remedies for cross-thread views: owning copy, mutex, `shared_ptr` (plus epoch reclamation in Phase 9 and shard ownership in Phase 3).
+
 ### Key Insights
+- **Container property that will not survive Phase 5:** because `unordered_map` is node-based, elements never move, so views stay valid across inserts of other keys. Open addressing moves entries on growth, which breaks this.
 - **Latency grows with working set.** Get hit: 14 ns (1K keys) -> 25 ns (100K) -> 84 ns (1M). The 1M figure is the memory-bound number later phases must beat.
 - **A miss can be cheaper or dearer than a hit.** At 1M keys a miss (71 ns) beats a hit (84 ns) because many lookups end at an empty bucket without touching a node. At 1K keys a miss (19 ns) is slower than a hit (14 ns) because it must walk past colliding nodes.
 - **Throughput benchmark vs open-loop latency can disagree, and both are right.** The tight loop gives 84 ns for a Get at 1M keys; the paced open-loop run gave a p50 of 375-459 ns for the same operation, because the core idles for ~5 us between operations (lower clock, colder caches). Quote them for what they are, not interchangeably.
@@ -122,4 +127,4 @@ Tooling lessons:
 - Mutation results: `docs/DESIGN.md` D-006
 - Commit: `0eef24b` (code, tests, benchmark tools); drill questions: `docs/INTERVIEW_NOTES.md` (Phase 1)
 
-(Phase 1 section ends with "End of Phase 1" once the drill is answered and the phase is tagged.)
+**End of Phase 1** (tag `phase-1-done`; Q4 and Q5 of the drill and the earlier re-answers carried into Phase 2)

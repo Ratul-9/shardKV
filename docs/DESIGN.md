@@ -32,6 +32,7 @@ Decision log and trade-offs. Each entry: what we chose, what we rejected, and wh
 **Rejected:** `std::optional<std::string>` (copy per lookup).
 **Why:** a caller usually wants to use the value, not own a copy; no allocation on the read path.
 **Cost / consequences:** the view is invalidated by any later `Put` to that key or `Delete`. This is fine single-threaded. In Phase 2 a thread-safe wrapper must copy under the lock before returning to a gRPC handler. Revisit when the shard worker owns the data (Phase 3) and again for the epoch-based reader (Phase 9).
+**Property of this container:** `unordered_map` is node-based, so a `Put` of a *different* key never moves existing elements and does not invalidate a view. An open-addressing table (Phase 5) moves entries on growth, so this guarantee will be lost then and views must be revisited.
 **Implementation note:** looking up a `std::unordered_map<std::string, ...>` by `string_view` allocates a temporary `std::string` unless the map uses a transparent hash and equality (C++20 heterogeneous lookup).
 
 ---
