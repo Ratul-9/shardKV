@@ -3,7 +3,7 @@
 | Phase | Status | Tag |
 |---|---|---|
 | 0 Foundations and measurement | Done | `phase-0-done` |
-| 1 Single-threaded baseline Done (drill: 3 of 5 answered) | `phase-1-done` |
+| 1 Single-threaded baseline | Done (drill: 3 of 5 answered) | `phase-1-done` |
 | 2-11 | Not started | |
 
 ## Phase 0 contents
