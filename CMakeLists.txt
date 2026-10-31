@@ -46,9 +46,11 @@ if(LLDSTORE_WERROR)
   target_compile_options(lldstore_warnings INTERFACE -Werror)
 endif()
 
+find_package(Threads REQUIRED)
+
 add_library(lldstore_common INTERFACE)
 target_include_directories(lldstore_common INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(lldstore_common INTERFACE lldstore_warnings)
+target_link_libraries(lldstore_common INTERFACE lldstore_warnings Threads::Threads)
 
 enable_testing()
 add_subdirectory(tests)

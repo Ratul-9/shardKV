@@ -37,7 +37,9 @@ The first configure downloads GoogleTest and Google Benchmark (needs internet on
 | Run one test | `ctest --preset debug -R 'Store.PutThenGet'` |
 | Run one test directly with full output | `./build/debug/tests/store_tests --gtest_filter='Store.PutThenGet'` |
 | Run the store tests directly | `./build/debug/tests/store_tests` |
-| Run the harness tests directly (histogram, open loop) | `./build/debug/tests/common_tests` |
+| Run the harness tests directly (histogram, open loop, multi-client) | `./build/debug/tests/common_tests` |
+| Run the locked-store stress tests directly, including disabled ones | `./build/debug/tests/locked_store_tests --gtest_also_run_disabled_tests` |
+| Same under ThreadSanitizer | `cmake --build --preset tsan -j10 && ./build/tsan/tests/locked_store_tests --gtest_also_run_disabled_tests` |
 | Run a test many times to catch flaky ones | `./build/debug/tests/store_tests --gtest_repeat=50 --gtest_shuffle` |
 | Run the randomised model test with a different seed | edit `kSeed` in `tests/store_test.cpp`, rebuild, run it |
 
@@ -110,6 +112,20 @@ Prints requested bytes per entry, allocations per entry, and RSS delta per entry
 | What | Command |
 |---|---|
 | Cost of recording a sample, computing a percentile, reading the clock | `./build/release/bench/histogram_bench --benchmark_repetitions=5 --benchmark_report_aggregates_only=true --benchmark_min_time=0.3s` |
+
+### 3e. Lock contention, in process (Phase 2): `contention`
+
+Needs your `MutexStore` / `SharedMutexStore` implemented (the stubs abort). Usage: `contention [--store=none|mutex|shared] [--clients=N] [--mode=open|closed] [--rate=TOTAL_OPS_PER_SEC] [--seconds=S] [--warmup=S] [--keys=K] [--read-pct=P]`
+
+| What | Command |
+|---|---|
+| Reference: bare single-threaded Store, closed loop (max throughput) | `./build/release/bench/contention --store=none --clients=1 --mode=closed --seconds=5` |
+| Scaling curve, plain mutex | `for c in 1 4 16 64; do ./build/release/bench/contention --store=mutex --clients=$c --mode=closed --seconds=5; done` |
+| Scaling curve, shared_mutex | `for c in 1 4 16 64; do ./build/release/bench/contention --store=shared --clients=$c --mode=closed --seconds=5; done` |
+| Latency percentiles at a fixed offered load (4 clients, 200K ops/s total) | `./build/release/bench/contention --store=mutex --clients=4 --mode=open --rate=200000 --seconds=10` |
+| Write-heavy mix | add `--read-pct=50` |
+
+`--mode=closed` reports only throughput; use `--mode=open` for latency. Note the clients and the store share the same 10 cores, so 64 clients oversubscribe the machine; record that with the result. (These loops use `$c`: in zsh they work as written because `$c` is a single argument.)
 
 ---
 

@@ -4,7 +4,8 @@
 |---|---|---|
 | 0 Foundations and measurement | Done | `phase-0-done` |
 | 1 Single-threaded baseline | Done (drill: 3 of 5 answered) | `phase-1-done` |
-| 2-11 | Not started | |
+| 2 Naive concurrent server (mutex baseline) | In progress: stubs, load generator, contention tool and stress tests ready; **waiting for Ratul's ThreadPool and locked stores**; gRPC server not started | |
+| 3-11 | Not started | |
 
 ## Phase 0 contents
 - CMake + presets: `debug`, `release`, `asan`, `ubsan`, `tsan` (`cmake --preset X && cmake --build --preset X && ctest --preset X`)
@@ -17,6 +18,14 @@
 - `tests/store_test.cpp`: 14 tests (examples, edge cases, rehashing, randomised model test). Pass under debug, ASan, UBSan, TSan. Mutation-checked with 5 injected bugs, all caught.
 - Benchmarks: `bench/store_bench.cpp` (throughput), `bench/store_latency.cpp` (open-loop percentiles), `bench/footprint.cpp` (bytes per entry). Results in `docs/BENCHMARKS.md` (B-002 to B-004), raw output in `bench/results/`.
 - Decisions D-002 to D-006 in `docs/DESIGN.md`.
+
+## Phase 2 contents so far
+- Hand-write stubs: `include/lldstore/thread_pool.h`, `include/lldstore/locked_store.h` (`MutexStore`, `SharedMutexStore`)
+- `include/lldstore/multi_client.h`: multi-client open-loop and closed-loop runners (tested in `tests/multi_client_test.cpp`)
+- `bench/contention.cpp`: in-process lock-contention tool (`--store=none|mutex|shared`, `--clients`, `--mode=open|closed`)
+- `tests/locked_store_test.cpp`: stress tests over both stores, DISABLED_ until implemented. Validated against a throwaway correct implementation (passes under TSan/ASan) and a deliberately unlocked one (TSan reports data races, ASan crashes).
+- Not yet done: proto, gRPC server and client, service-level benchmarks, `DESIGN.md` entries for the thread pool and locking.
+- Open design question for Ratul: how the gRPC server uses the thread pool (sync API with gRPC's own threads vs callback API handing work to our `ThreadPool`).
 
 ## Open issues
 - Retry Phase 1 drill Q4 and Q5 (`docs/INTERVIEW_NOTES.md`). Earlier re-answers are self-reported and ungraded.

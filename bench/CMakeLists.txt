@@ -9,3 +9,6 @@ target_link_libraries(store_latency PRIVATE lldstore_common benchmark::benchmark
 
 add_executable(footprint footprint.cpp)
 target_link_libraries(footprint PRIVATE lldstore_common)
+
+add_executable(contention contention.cpp)
+target_link_libraries(contention PRIVATE lldstore_common benchmark::benchmark)

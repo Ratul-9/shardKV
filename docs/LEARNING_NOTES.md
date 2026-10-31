@@ -128,3 +128,36 @@ Tooling lessons:
 - Commit: `0eef24b` (code, tests, benchmark tools); drill questions: `docs/INTERVIEW_NOTES.md` (Phase 1)
 
 **End of Phase 1** (tag `phase-1-done`; Q4 and Q5 of the drill and the earlier re-answers carried into Phase 2)
+
+---
+
+## Phase 2: Naive concurrent server (the mutex baseline)  (IN PROGRESS)
+
+### Topics Studied
+- Mutex cost under contention: blocking/wake-up cost and cache-line bouncing of the lock word. CS:APP Ch. 12 (synchronisation, pp. ___), Ch. 6 (cache coherence background, pp. ___). Coherence protocol detail is not in CS:APP (Drepper's memory paper).
+- Amdahl's law applied to a global lock. CS:APP Ch. 5 (pp. ___).
+- `shared_mutex`: readers still write the shared reader count. cppreference `std::shared_mutex`; *C++ Concurrency in Action*. Not in CS:APP.
+- Why a view must be copied while the lock is held (use-after-free and data race). Not specific to CS:APP.
+- Open-loop vs closed-loop load generation with many clients: open loop for latency, closed loop only for maximum throughput. Gil Tene's talk. Not in CS:APP.
+
+### What you have shown you know
+- **[Knew]** Waiting threads cannot do useful work while blocked (serialisation).
+- **[Refined]** Why contention makes things *slower* (wake-up cost, cache-line bouncing).
+- **[To do]** Why copy-after-unlock is unsafe (use-after-free, data race) and what the copy costs.
+- **[Corrected]** `shared_mutex` is not automatically better for read-heavy loads; the reader count is itself a contended write. Hypothesis to be tested by measurement.
+
+### Key Insights
+- (Fill in after measuring: mutex vs shared_mutex at 1, 4, 16, 64 clients.)
+
+### Mistakes & Fixes
+- (Fill in as you write the thread pool and the locks.)
+- Tooling: macOS has no `timeout` command (use `perl -e 'alarm N; exec @ARGV'`); zsh does not word-split an unquoted `$VAR`, so scripts that build argument lists need bash arrays or `bash -c`.
+- Tooling: `-Wconversion -Werror` rejected `std::string(n, 'a' + t)` (int to char); cast explicitly.
+
+### Code References
+- Thread pool stub (yours to write): `include/lldstore/thread_pool.h`
+- Locked stores stubs (yours to write): `include/lldstore/locked_store.h`
+- Multi-client load generator (open and closed loop): `include/lldstore/multi_client.h`
+- In-process contention tool: `bench/contention.cpp`
+- Stress tests (disabled until the stores exist): `tests/locked_store_test.cpp`; harness tests: `tests/multi_client_test.cpp`
+- Pre-check grades: `docs/INTERVIEW_NOTES.md` (Phase 2 pre-check)

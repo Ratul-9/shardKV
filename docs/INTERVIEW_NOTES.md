@@ -61,3 +61,22 @@
 ## Still owed (carry into the Phase 2 recap)
 - Retry Phase 1 Q4 and Q5 in your own words.
 - Earlier re-answers (p99 tail amplification, coordinated omission cause and latency spread, sleep-then-spin, cache-miss count, string_view invalidation): you said you did these; I have not seen them, so they are recorded as self-reported and ungraded.
+
+---
+
+## Phase 2 pre-check (graded)
+
+**Q1. Why does a contended `std::mutex` make more threads slower, not just no faster?**
+- Your answer: Waiting threads cannot do their work, so all those routines are halted, making them slower overall.
+- Grade: B-. Explains "no faster" (serialisation), not "slower".
+- Corrected answer: (1) blocking and waking a thread costs microseconds (sleep, context switch, wake-up) and adds latency to every handoff; (2) the lock word is written on every acquire and release, so its cache line bounces between cores (cache coherence), and the more threads, the more bouncing. Both costs grow with thread count while the critical section stays serial (Amdahl).
+
+**Q2. What goes wrong if the wrapper copies the value after unlocking, and what does the copy cost?**
+- Your answer: Do not know.
+- Grade: not answered.
+- Model answer: another thread can `Put` or `Delete` the key between unlock and copy, so the view points at freed or overwritten memory: a use-after-free and a data race (TSan would report it). The copy costs an allocation plus a `memcpy` while holding the lock: tens of ns for 64 bytes, milliseconds for 1 MB, which lengthens the serial section. A caller-supplied reusable buffer avoids the allocation.
+
+**Q3. Would `shared_mutex` beat a plain mutex for 90% Get / 10% Put with ~100 ns operations?**
+- Your answer: Yes, because many readers can proceed at once and only 10% are writes.
+- Grade: C+. Right principle, likely wrong conclusion for this case.
+- Corrected answer: a read lock still performs an atomic increment on a shared reader count, so concurrent readers still contend on one cache line. With a ~100 ns critical section that overhead can cancel or exceed the saving, so `shared_mutex` is often no faster, or slower, than a plain mutex. `shared_mutex` pays off when the critical section is long compared with the locking overhead. **Hypothesis recorded; we will measure it** (`contention --store=mutex` vs `--store=shared`).
