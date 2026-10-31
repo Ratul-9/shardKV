@@ -35,4 +35,6 @@
 - Transparent-hash lookup variant not measured (D-003 follow-up).
 - `clang-format` not installed; `.clang-format` unchecked. No GitHub remote, so CI has never run.
 - Leak detection unavailable on macOS ASan (Linux CI covers it).
-- Single-threaded load generator; Phase 2 needs a multi-client one.
+- The multi-client load generator exists (`multi_client.h`) but runs in-process only; a gRPC client load generator is still to be written for the service benchmarks.
+- Retry Phase 2 pre-check Q2 (copy after unlocking) and Q1 in your own words (`docs/INTERVIEW_NOTES.md`). Q3 is a hypothesis to be tested by measurement.
+- `docs/DESIGN.md` has no Phase 2 entries yet: waiting for your thread-pool and locking decisions and the server design choice (sync API vs callback API with our `ThreadPool`).
