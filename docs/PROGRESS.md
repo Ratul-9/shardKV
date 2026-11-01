@@ -4,7 +4,7 @@
 |---|---|---|
 | 0 Foundations and measurement | Done | `phase-0-done` |
 | 1 Single-threaded baseline | Done (drill: 3 of 5 answered) | `phase-1-done` |
-| 2 Naive concurrent server (mutex baseline) | In progress: stubs, load generator, contention tool and stress tests ready; **waiting for Ratul's ThreadPool and locked stores**; gRPC server not started | |
+| 2 Naive concurrent server (mutex baseline) | In progress: stubs, load generator, contention tool and stress tests ready; `ThreadPool` implemented (by Claude at Ratul's request, D-007); **waiting for Ratul's locked stores and thread-pool tests**; gRPC server not started | |
 | 3-11 | Not started | |
 
 ## Phase 0 contents
@@ -20,7 +20,7 @@
 - Decisions D-002 to D-006 in `docs/DESIGN.md`.
 
 ## Phase 2 contents so far
-- Hand-write stubs: `include/lldstore/thread_pool.h`, `include/lldstore/locked_store.h` (`MutexStore`, `SharedMutexStore`)
+- `include/lldstore/thread_pool.h`: implemented (mutex + queue + condition variable, drains on shutdown); stub remains in `include/lldstore/locked_store.h` (`MutexStore`, `SharedMutexStore`) for Ratul to write
 - `include/lldstore/multi_client.h`: multi-client open-loop and closed-loop runners (tested in `tests/multi_client_test.cpp`)
 - `bench/contention.cpp`: in-process lock-contention tool (`--store=none|mutex|shared`, `--clients`, `--mode=open|closed`)
 - `tests/locked_store_test.cpp`: stress tests over both stores, DISABLED_ until implemented. Validated against a throwaway correct implementation (passes under TSan/ASan) and a deliberately unlocked one (TSan reports data races, ASan crashes).
@@ -37,4 +37,5 @@
 - Leak detection unavailable on macOS ASan (Linux CI covers it).
 - The multi-client load generator exists (`multi_client.h`) but runs in-process only; a gRPC client load generator is still to be written for the service benchmarks.
 - Retry Phase 2 pre-check Q2 (copy after unlocking) and Q1 in your own words (`docs/INTERVIEW_NOTES.md`). Q3 is a hypothesis to be tested by measurement.
-- `docs/DESIGN.md` has no Phase 2 entries yet: waiting for your thread-pool and locking decisions and the server design choice (sync API vs callback API with our `ThreadPool`).
+- `docs/DESIGN.md` D-007 covers the thread pool. Still missing: the locking decisions and the server design choice (sync API vs callback API with our `ThreadPool`).
+- `tests/thread_pool_test.cpp` is still a placeholder (Ratul to write); the pool has only been checked by a throwaway test outside the repo.

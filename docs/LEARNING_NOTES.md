@@ -147,6 +147,12 @@ Tooling lessons:
 - **[Corrected]** `shared_mutex` is not automatically better for read-heavy loads; the reader count is itself a contended write. Hypothesis to be tested by measurement.
 
 ### Key Insights
+- **Thread pool, how it works:** one mutex guards one queue; idle workers sleep on a condition variable; tasks run outside the lock. (Written by Claude at Ratul's request; design in `docs/DESIGN.md` D-007.)
+- **Lost wakeup:** if the stop flag or the queue is changed without the mutex the workers wait on, a worker can check the predicate, find it false, and sleep just before the notify; the notification is lost. Always change the predicate's state under the same mutex.
+- **Predicate loop:** `wait` can wake spuriously, and another worker may take the task first, so the condition is re-checked on every wake-up.
+- **Drain on shutdown:** workers exit only when stopping AND the queue is empty, so accepted tasks are never dropped.
+- **An exception escaping a `std::thread` function calls `std::terminate`;** the pool catches it so one bad task cannot kill the process (at the price of hiding the error).
+- **A single queue lock is a contention point** at high task rates; this is what Phases 3 and 4 remove.
 - (Fill in after measuring: mutex vs shared_mutex at 1, 4, 16, 64 clients.)
 
 ### Mistakes & Fixes
@@ -155,7 +161,7 @@ Tooling lessons:
 - Tooling: `-Wconversion -Werror` rejected `std::string(n, 'a' + t)` (int to char); cast explicitly.
 
 ### Code References
-- Thread pool stub (yours to write): `include/lldstore/thread_pool.h`
+- Thread pool (written by Claude at Ratul's request, read and defend it): `include/lldstore/thread_pool.h` (worker loop `WorkerLoop`, destructor shutdown, `Submit`)
 - Locked stores stubs (yours to write): `include/lldstore/locked_store.h`
 - Multi-client load generator (open and closed loop): `include/lldstore/multi_client.h`
 - In-process contention tool: `bench/contention.cpp`

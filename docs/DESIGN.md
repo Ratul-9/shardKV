@@ -72,6 +72,35 @@ Decision log and trade-offs. Each entry: what we chose, what we rejected, and wh
 
 ---
 
+## D-007: ThreadPool design (2026-11-02)
+
+**Authorship:** written by Claude at Ratul's explicit request after Ratul's own attempt had only an empty constructor. This is a [HAND-WRITE] item, so Ratul must be able to defend every choice below; challenge any of them and we will change it.
+
+**Chosen**
+- **One `std::mutex` + one `std::queue<std::function<void()>>` + one `std::condition_variable`.** Simple and obviously correct; the single queue lock is itself a contention point at high task rates (a real cost, and the motivation for per-shard queues in Phase 3 and lock-free queues in Phase 4).
+- **Idle workers sleep on the condition variable** with a predicate (`stop_ || !tasks_.empty()`), so they use no CPU when idle.
+- **Shutdown drains:** the destructor sets `stop_`, wakes everyone, and workers exit only when `stop_` is set AND the queue is empty. Every accepted task runs exactly once.
+- **A throwing task is caught and discarded;** the worker survives.
+- **`Submit` is allowed from inside a running task, including during draining.** It is not allowed concurrently with or after destruction from outside (undefined behaviour for any C++ object), so no "rejected after shutdown" path exists.
+- **`num_threads == 0` is clamped to 1** (zero workers would accept tasks and never run them).
+- Tasks run outside the lock; `notify_one` after releasing the lock in `Submit`; `notify_all` in the destructor.
+
+**Rejected**
+- **Discard queued tasks on shutdown:** faster to stop, but silently drops work the caller was told was accepted.
+- **Let exceptions propagate:** `std::terminate` kills the whole server for one bad request.
+- **`Submit` returns `std::future`:** useful but adds a `packaged_task` allocation per task; not needed for the baseline.
+- **Busy-wait workers:** burns cores, which would distort the benchmarks.
+- **Work-stealing / per-worker queues:** the right answer at scale, but this phase is the deliberately naive baseline.
+
+**Why the subtle parts are the way they are**
+- `stop_` is set under the mutex: otherwise a worker could check the predicate, then sleep just before the notify (lost wakeup) and `join()` would hang.
+- The wait is a predicate loop: spurious wake-ups, and another worker can take the task first.
+- `workers_` is declared last so all other members are constructed before any thread starts.
+
+**Verified by** a throwaway 9-test check (not the repo's tests) under no sanitizer, TSan, ASan and UBSan with `-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Werror`: each task runs once, concurrent execution, throwing tasks, submit-from-task during drain, 8 concurrent producers, a blocked task not stalling others, 200 idle create/destroy cycles, zero-thread clamp, repeated stress. The repo's `tests/thread_pool_test.cpp` is still Ratul's to write.
+
+---
+
 ## Open questions
 
 - Apple clang is 21.0.0. Whether `std::hardware_destructive_interference_size` is available is still to verify in Phase 5.
