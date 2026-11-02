@@ -53,5 +53,6 @@ target_include_directories(lldstore_common INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(lldstore_common INTERFACE lldstore_warnings Threads::Threads)
 
 enable_testing()
+add_subdirectory(proto)
 add_subdirectory(tests)
 add_subdirectory(bench)

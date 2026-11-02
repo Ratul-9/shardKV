@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package lldstore.v1;
+
+// Keys and values are `bytes`, not `string`: proto3 `string` must be valid UTF-8, and the store
+// accepts arbitrary binary data (including NUL bytes).
+//
+// Idempotency (matters when a client retries after a timeout and cannot tell whether the first
+// attempt reached the server):
+//   Get    - read only, always safe to retry.
+//   Put    - idempotent: repeating the same key/value leaves the same state.
+//   Delete - the final state is idempotent, but the reply is not: a retry after a successful first
+//            attempt returns existed=false. Callers must not treat that as "the key never existed".
+service KV {
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Put(PutRequest) returns (PutResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+}
+
+message GetRequest {
+  bytes key = 1;
+}
+
+message GetResponse {
+  bool found = 1;
+  bytes value = 2;  // empty when found is false
+}
+
+message PutRequest {
+  bytes key = 1;
+  bytes value = 2;
+}
+
+message PutResponse {}
+
+message DeleteRequest {
+  bytes key = 1;
+}
+
+message DeleteResponse {
+  bool existed = 1;
+}

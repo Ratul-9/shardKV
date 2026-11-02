@@ -12,3 +12,12 @@ target_link_libraries(footprint PRIVATE lldstore_common)
 
 add_executable(contention contention.cpp)
 target_link_libraries(contention PRIVATE lldstore_common benchmark::benchmark)
+
+# gRPC server and load generator (only when gRPC/Protobuf were found and this is not a sanitizer build)
+if(LLDSTORE_HAVE_GRPC)
+  add_executable(kv_server kv_server.cpp)
+  target_link_libraries(kv_server PRIVATE lldstore_common lldstore_proto)
+
+  add_executable(kv_client kv_client.cpp)
+  target_link_libraries(kv_client PRIVATE lldstore_common lldstore_proto benchmark::benchmark)
+endif()

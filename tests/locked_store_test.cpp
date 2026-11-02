@@ -16,15 +16,14 @@ namespace {
 
 // Typed over both lock strategies: the same tests must pass for MutexStore and SharedMutexStore.
 //
-// The tests are DISABLED_ while the stubs in locked_store.h are unimplemented. When you have
-// implemented the stores, remove the DISABLED_ prefixes, then run these under the debug build and
-// ALSO under the tsan preset (a data race may not change a test's result, but TSan will report it).
+// The concurrency tests can pass even with a data race, so ALSO run them under the tsan preset,
+// where a race is reported as a failure.
 template <typename S>
 class LockedStoreTest : public ::testing::Test {};
 using StoreTypes = ::testing::Types<MutexStore, SharedMutexStore>;
 TYPED_TEST_SUITE(LockedStoreTest, StoreTypes);
 
-TYPED_TEST(LockedStoreTest, DISABLED_SingleThreadedBasics) {
+TYPED_TEST(LockedStoreTest, SingleThreadedBasics) {
   TypeParam store;
   std::string out;
 
@@ -44,7 +43,7 @@ TYPED_TEST(LockedStoreTest, DISABLED_SingleThreadedBasics) {
 
 // Each thread owns a disjoint key range and checks every operation against its own reference
 // model, so any lost or corrupted update is detected exactly.
-TYPED_TEST(LockedStoreTest, DISABLED_ConcurrentDisjointKeysMatchPerThreadModel) {
+TYPED_TEST(LockedStoreTest, ConcurrentDisjointKeysMatchPerThreadModel) {
   constexpr int kThreads = 8;
   constexpr int kSteps = 20000;
   constexpr uint64_t kKeysPerThread = 30;
@@ -93,7 +92,7 @@ TYPED_TEST(LockedStoreTest, DISABLED_ConcurrentDisjointKeysMatchPerThreadModel) 
 
 // All threads fight over the same few keys. Every value written is `key + ":" + run of 'x'`, so a
 // torn or half-written value (a read racing a write) is detectable even without a model.
-TYPED_TEST(LockedStoreTest, DISABLED_SharedKeysNeverReturnTornValues) {
+TYPED_TEST(LockedStoreTest, SharedKeysNeverReturnTornValues) {
   constexpr int kThreads = 8;
   constexpr int kSteps = 30000;
   constexpr uint64_t kKeys = 20;
