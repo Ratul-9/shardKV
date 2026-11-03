@@ -46,5 +46,20 @@ TEST(OpenLoop, StallIsChargedToEveryMissedSlot) {
   EXPECT_LT(r.latency.ValueAtPercentile(50), 20'000'000u);   // < 20 ms: unaffected ops stay fast
 }
 
+// Regression test for a harness bug: sleep_for can overshoot by a fraction of the requested time
+// (about 25-30% on macOS), so sleeping until a short margin before a LONG interval's deadline made
+// every operation start late, and that lateness was charged as latency. At 20 ms intervals an
+// idle no-op loop must still start operations close to their intended time. The overshoot was
+// systematic (every operation ~25% late), so the median is asserted: unlike p99 it is not
+// sensitive to a single scheduler hiccup on a loaded machine.
+TEST(OpenLoop, LongIntervalsDoNotAddSleepOvershootToLatency) {
+  OpenLoopConfig cfg;
+  cfg.target_ops_per_sec = 50;  // one operation every 20 ms
+  cfg.duration = 1s;
+  const auto r = RunOpenLoop(cfg, [] {});
+  EXPECT_EQ(r.measured_ops, 50u);
+  EXPECT_LT(r.latency.ValueAtPercentile(50), 2'000'000u);  // < 2 ms (the old code gave ~5 ms)
+}
+
 }  // namespace
 }  // namespace lldstore

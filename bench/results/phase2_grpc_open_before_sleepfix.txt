@@ -1,0 +1,63 @@
+# commit=3de99c5 date=2026-11-03_09:37:53 reps=3
+ 9:37  up 5 days, 12:40, 1 user, load averages: 6.96 11.90 8.24
+## server=mutex workers=0 clients=1 mode=open rate=5000
+target=127.0.0.1:50321 clients=1 mode=open keys=1000000 read_pct=90
+offered=5000 achieved=5000 ops/s measured_ops=30000
+latency ns: min=56208 p50=65535 p90=71679 p99=90111 p999=102399 max=121417 mean=66364
+rpc_errors=0
+## server=mutex workers=0 clients=4 mode=open rate=5000
+target=127.0.0.1:50321 clients=4 mode=open keys=1000000 read_pct=90
+offered=5000 achieved=5000 ops/s measured_ops=30000
+latency ns: min=117166 p50=389119 p90=425983 p99=511999 p999=8323071 max=11420666 mean=394388
+rpc_errors=0
+## server=mutex workers=0 clients=16 mode=open rate=5000
+target=127.0.0.1:50321 clients=16 mode=open keys=1000000 read_pct=90
+offered=5000 achieved=5000 ops/s measured_ops=30000
+latency ns: min=130083 p50=1277951 p90=1409023 p99=1523711 p999=1785855 max=2629583 mean=1224350
+rpc_errors=0
+## server=mutex workers=0 clients=64 mode=open rate=5000
+target=127.0.0.1:50321 clients=64 mode=open keys=1000000 read_pct=90
+offered=5000 achieved=4996 ops/s measured_ops=29952
+latency ns: min=176459 p50=4456447 p90=5242879 p99=5832703 p999=7929855 max=8377292 mean=4108841
+rpc_errors=0
+## server=mutex workers=8 clients=1 mode=open rate=5000
+target=127.0.0.1:50321 clients=1 mode=open keys=1000000 read_pct=90
+offered=5000 achieved=5000 ops/s measured_ops=30000
+latency ns: min=58042 p50=69631 p90=75775 p99=94207 p999=109567 max=165625 mean=70372
+rpc_errors=0
+## server=mutex workers=8 clients=4 mode=open rate=5000
+target=127.0.0.1:50321 clients=4 mode=open keys=1000000 read_pct=90
+offered=5000 achieved=5000 ops/s measured_ops=30000
+latency ns: min=108125 p50=409599 p90=454655 p99=520191 p999=647167 max=1414583 mean=389470
+rpc_errors=0
+## server=mutex workers=8 clients=16 mode=open rate=5000
+target=127.0.0.1:50321 clients=16 mode=open keys=1000000 read_pct=90
+offered=5000 achieved=5000 ops/s measured_ops=30000
+latency ns: min=147042 p50=1327103 p90=1458175 p99=1589247 p999=1818623 max=2224417 mean=1277459
+rpc_errors=0
+## server=mutex workers=8 clients=64 mode=open rate=5000
+target=127.0.0.1:50321 clients=64 mode=open keys=1000000 read_pct=90
+offered=5000 achieved=4997 ops/s measured_ops=29952
+latency ns: min=174125 p50=4456447 p90=5242879 p99=6029311 p999=6750207 max=6984042 mean=4177271
+rpc_errors=0
+## server=shared workers=8 clients=1 mode=open rate=5000
+target=127.0.0.1:50321 clients=1 mode=open keys=1000000 read_pct=90
+offered=5000 achieved=5000 ops/s measured_ops=30000
+latency ns: min=57250 p50=69631 p90=75775 p99=92159 p999=104447 max=161792 mean=70022
+rpc_errors=0
+## server=shared workers=8 clients=4 mode=open rate=5000
+target=127.0.0.1:50321 clients=4 mode=open keys=1000000 read_pct=90
+offered=5000 achieved=5000 ops/s measured_ops=30000
+latency ns: min=121417 p50=417791 p90=458751 p99=540671 p999=3866623 max=8587416 mean=401424
+rpc_errors=0
+## server=shared workers=8 clients=16 mode=open rate=5000
+target=127.0.0.1:50321 clients=16 mode=open keys=1000000 read_pct=90
+offered=5000 achieved=5000 ops/s measured_ops=30000
+latency ns: min=110541 p50=1310719 p90=1458175 p99=1605631 p999=2162687 max=2395916 mean=1259576
+rpc_errors=0
+## server=shared workers=8 clients=64 mode=open rate=5000
+target=127.0.0.1:50321 clients=64 mode=open keys=1000000 read_pct=90
+offered=5000 achieved=4998 ops/s measured_ops=29952
+latency ns: min=187500 p50=4325375 p90=5177343 p99=5898239 p999=19136511 max=21022833 mean=4063467
+rpc_errors=0
+ 9:42  up 5 days, 12:44, 1 user, load averages: 13.38 11.80 9.09

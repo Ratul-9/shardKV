@@ -1,0 +1,147 @@
+# commit=3de99c5 date=2026-11-03_09:37:53 reps=3
+ 9:37  up 5 days, 12:40, 1 user, load averages: 6.96 11.90 8.24
+## server=mutex workers=0 clients=1 mode=closed rep=1
+target=127.0.0.1:50321 clients=1 mode=closed keys=1000000 read_pct=90
+throughput=15440 ops/s (measured_ops=61760)
+rpc_errors=0
+## server=mutex workers=0 clients=1 mode=closed rep=2
+target=127.0.0.1:50321 clients=1 mode=closed keys=1000000 read_pct=90
+throughput=15520 ops/s (measured_ops=62080)
+rpc_errors=0
+## server=mutex workers=0 clients=1 mode=closed rep=3
+target=127.0.0.1:50321 clients=1 mode=closed keys=1000000 read_pct=90
+throughput=15632 ops/s (measured_ops=62528)
+rpc_errors=0
+## server=mutex workers=0 clients=4 mode=closed rep=1
+target=127.0.0.1:50321 clients=4 mode=closed keys=1000000 read_pct=90
+throughput=32896 ops/s (measured_ops=131584)
+rpc_errors=0
+## server=mutex workers=0 clients=4 mode=closed rep=2
+target=127.0.0.1:50321 clients=4 mode=closed keys=1000000 read_pct=90
+throughput=32000 ops/s (measured_ops=128000)
+rpc_errors=0
+## server=mutex workers=0 clients=4 mode=closed rep=3
+target=127.0.0.1:50321 clients=4 mode=closed keys=1000000 read_pct=90
+throughput=31728 ops/s (measured_ops=126912)
+rpc_errors=0
+## server=mutex workers=0 clients=16 mode=closed rep=1
+target=127.0.0.1:50321 clients=16 mode=closed keys=1000000 read_pct=90
+throughput=53104 ops/s (measured_ops=212416)
+rpc_errors=0
+## server=mutex workers=0 clients=16 mode=closed rep=2
+target=127.0.0.1:50321 clients=16 mode=closed keys=1000000 read_pct=90
+throughput=51840 ops/s (measured_ops=207360)
+rpc_errors=0
+## server=mutex workers=0 clients=16 mode=closed rep=3
+target=127.0.0.1:50321 clients=16 mode=closed keys=1000000 read_pct=90
+throughput=50352 ops/s (measured_ops=201408)
+rpc_errors=0
+## server=mutex workers=0 clients=64 mode=closed rep=1
+target=127.0.0.1:50321 clients=64 mode=closed keys=1000000 read_pct=90
+throughput=54608 ops/s (measured_ops=218432)
+rpc_errors=0
+## server=mutex workers=0 clients=64 mode=closed rep=2
+target=127.0.0.1:50321 clients=64 mode=closed keys=1000000 read_pct=90
+throughput=52336 ops/s (measured_ops=209344)
+rpc_errors=0
+## server=mutex workers=0 clients=64 mode=closed rep=3
+target=127.0.0.1:50321 clients=64 mode=closed keys=1000000 read_pct=90
+throughput=50880 ops/s (measured_ops=203520)
+rpc_errors=0
+## server=mutex workers=8 clients=1 mode=closed rep=1
+target=127.0.0.1:50321 clients=1 mode=closed keys=1000000 read_pct=90
+throughput=14512 ops/s (measured_ops=58048)
+rpc_errors=0
+## server=mutex workers=8 clients=1 mode=closed rep=2
+target=127.0.0.1:50321 clients=1 mode=closed keys=1000000 read_pct=90
+throughput=14400 ops/s (measured_ops=57600)
+rpc_errors=0
+## server=mutex workers=8 clients=1 mode=closed rep=3
+target=127.0.0.1:50321 clients=1 mode=closed keys=1000000 read_pct=90
+throughput=14192 ops/s (measured_ops=56768)
+rpc_errors=0
+## server=mutex workers=8 clients=4 mode=closed rep=1
+target=127.0.0.1:50321 clients=4 mode=closed keys=1000000 read_pct=90
+throughput=25664 ops/s (measured_ops=102656)
+rpc_errors=0
+## server=mutex workers=8 clients=4 mode=closed rep=2
+target=127.0.0.1:50321 clients=4 mode=closed keys=1000000 read_pct=90
+throughput=24848 ops/s (measured_ops=99392)
+rpc_errors=0
+## server=mutex workers=8 clients=4 mode=closed rep=3
+target=127.0.0.1:50321 clients=4 mode=closed keys=1000000 read_pct=90
+throughput=24464 ops/s (measured_ops=97856)
+rpc_errors=0
+## server=mutex workers=8 clients=16 mode=closed rep=1
+target=127.0.0.1:50321 clients=16 mode=closed keys=1000000 read_pct=90
+throughput=40240 ops/s (measured_ops=160960)
+rpc_errors=0
+## server=mutex workers=8 clients=16 mode=closed rep=2
+target=127.0.0.1:50321 clients=16 mode=closed keys=1000000 read_pct=90
+throughput=40256 ops/s (measured_ops=161024)
+rpc_errors=0
+## server=mutex workers=8 clients=16 mode=closed rep=3
+target=127.0.0.1:50321 clients=16 mode=closed keys=1000000 read_pct=90
+throughput=40048 ops/s (measured_ops=160192)
+rpc_errors=0
+## server=mutex workers=8 clients=64 mode=closed rep=1
+target=127.0.0.1:50321 clients=64 mode=closed keys=1000000 read_pct=90
+throughput=39872 ops/s (measured_ops=159488)
+rpc_errors=0
+## server=mutex workers=8 clients=64 mode=closed rep=2
+target=127.0.0.1:50321 clients=64 mode=closed keys=1000000 read_pct=90
+throughput=40160 ops/s (measured_ops=160640)
+rpc_errors=0
+## server=mutex workers=8 clients=64 mode=closed rep=3
+target=127.0.0.1:50321 clients=64 mode=closed keys=1000000 read_pct=90
+throughput=40000 ops/s (measured_ops=160000)
+rpc_errors=0
+## server=shared workers=8 clients=1 mode=closed rep=1
+target=127.0.0.1:50321 clients=1 mode=closed keys=1000000 read_pct=90
+throughput=13136 ops/s (measured_ops=52544)
+rpc_errors=0
+## server=shared workers=8 clients=1 mode=closed rep=2
+target=127.0.0.1:50321 clients=1 mode=closed keys=1000000 read_pct=90
+throughput=13088 ops/s (measured_ops=52352)
+rpc_errors=0
+## server=shared workers=8 clients=1 mode=closed rep=3
+target=127.0.0.1:50321 clients=1 mode=closed keys=1000000 read_pct=90
+throughput=13072 ops/s (measured_ops=52288)
+rpc_errors=0
+## server=shared workers=8 clients=4 mode=closed rep=1
+target=127.0.0.1:50321 clients=4 mode=closed keys=1000000 read_pct=90
+throughput=23232 ops/s (measured_ops=92928)
+rpc_errors=0
+## server=shared workers=8 clients=4 mode=closed rep=2
+target=127.0.0.1:50321 clients=4 mode=closed keys=1000000 read_pct=90
+throughput=24032 ops/s (measured_ops=96128)
+rpc_errors=0
+## server=shared workers=8 clients=4 mode=closed rep=3
+target=127.0.0.1:50321 clients=4 mode=closed keys=1000000 read_pct=90
+throughput=23680 ops/s (measured_ops=94720)
+rpc_errors=0
+## server=shared workers=8 clients=16 mode=closed rep=1
+target=127.0.0.1:50321 clients=16 mode=closed keys=1000000 read_pct=90
+throughput=39024 ops/s (measured_ops=156096)
+rpc_errors=0
+## server=shared workers=8 clients=16 mode=closed rep=2
+target=127.0.0.1:50321 clients=16 mode=closed keys=1000000 read_pct=90
+throughput=40464 ops/s (measured_ops=161856)
+rpc_errors=0
+## server=shared workers=8 clients=16 mode=closed rep=3
+target=127.0.0.1:50321 clients=16 mode=closed keys=1000000 read_pct=90
+throughput=40064 ops/s (measured_ops=160256)
+rpc_errors=0
+## server=shared workers=8 clients=64 mode=closed rep=1
+target=127.0.0.1:50321 clients=64 mode=closed keys=1000000 read_pct=90
+throughput=40240 ops/s (measured_ops=160960)
+rpc_errors=0
+## server=shared workers=8 clients=64 mode=closed rep=2
+target=127.0.0.1:50321 clients=64 mode=closed keys=1000000 read_pct=90
+throughput=40640 ops/s (measured_ops=162560)
+rpc_errors=0
+## server=shared workers=8 clients=64 mode=closed rep=3
+target=127.0.0.1:50321 clients=64 mode=closed keys=1000000 read_pct=90
+throughput=40608 ops/s (measured_ops=162432)
+rpc_errors=0
+ 9:42  up 5 days, 12:44, 1 user, load averages: 13.38 11.80 9.09

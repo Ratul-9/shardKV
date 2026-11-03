@@ -24,14 +24,20 @@ struct OpenLoopResult {
 namespace detail {
 using Clock = std::chrono::steady_clock;
 
-// Sleep for the bulk of the wait, then spin: sleep_for alone overshoots by tens of microseconds.
+// Waits until `t`. sleep_for can overshoot by a FRACTION of the requested time (measured on macOS:
+// about 25-30%, so a 12.7 ms sleep returns ~3 ms late), not by a fixed amount. A single sleep up
+// to a fixed margin before the deadline therefore overshoots badly on long waits. Instead, sleep
+// for only HALF of the remaining time and re-check: the overshoot (< half of what we asked for)
+// can never carry us past the deadline, and the remaining time shrinks geometrically. Spin only
+// for the final stretch, where sleeping is too coarse.
 inline void WaitUntil(Clock::time_point t) {
   using namespace std::chrono_literals;
+  constexpr auto kSpinBelow = 50us;
   for (;;) {
     const auto now = Clock::now();
     if (now >= t) return;
     const auto remaining = t - now;
-    if (remaining > 200us) std::this_thread::sleep_for(remaining - 100us);
+    if (remaining > kSpinBelow) std::this_thread::sleep_for(remaining / 2);
   }
 }
 }  // namespace detail

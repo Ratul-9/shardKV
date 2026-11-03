@@ -135,7 +135,7 @@ Tooling lessons:
 
 ### Topics Studied
 - Mutex cost under contention: blocking/wake-up cost and cache-line bouncing of the lock word. CS:APP Ch. 12 (synchronisation, pp. ___), Ch. 6 (cache coherence background, pp. ___). Coherence protocol detail is not in CS:APP (Drepper's memory paper).
-- Amdahl's law applied to a global lock. CS:APP Ch. 5 (pp. ___).
+- Amdahl's law applied to a global lock. CS:APP §1.9.1 (and §12.6 for speedup and efficiency), pp. ___. (Earlier notes said Ch. 5; that was wrong.)
 - `shared_mutex`: readers still write the shared reader count. cppreference `std::shared_mutex`; *C++ Concurrency in Action*. Not in CS:APP.
 - Why a view must be copied while the lock is held (use-after-free and data race). Not specific to CS:APP.
 - Open-loop vs closed-loop load generation with many clients: open loop for latency, closed loop only for maximum throughput. Gil Tene's talk. Not in CS:APP.

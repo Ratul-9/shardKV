@@ -101,6 +101,50 @@ Decision log and trade-offs. Each entry: what we chose, what we rejected, and wh
 
 ---
 
+## D-008: Locking strategy for the mutex baseline (2026-11-02)
+
+**Authorship:** written by Claude at Ratul's explicit request (the stubs were still unwritten). Ratul must be able to defend these choices; challenge any of them.
+
+**Chosen**
+- `MutexStore`: one `std::mutex`; every method takes `std::lock_guard`. Reads are exclusive too.
+- `SharedMutexStore`: one `std::shared_mutex`; `Get` and `Size` take `std::shared_lock`, `Put` and `Delete` take `std::unique_lock`.
+- `Get` copies the value into the caller's `std::string*` **while the lock is held**; it never returns a view. A reusable output buffer avoids an allocation per call.
+- `Size()` is locked. An unsynchronised `unordered_map::size()` racing a `Put` is a data race even though it only reads.
+- The mutex members are `mutable` so that `Get` and `Size` can stay `const` for callers.
+- Reader safety in `SharedMutexStore` rests on `Store::Get` and `Store::Size` being `const` and not mutating anything (no lazy caching, no hidden counters). Anyone who later adds a mutation to those paths silently breaks it; TSan stress tests guard it.
+
+**Rejected**
+- Returning a `string_view` under a lock held by the caller (a "guard" object): correct but a leaky abstraction for a network server that must copy into a response anyway.
+- A template over the mutex type: removes duplication but hides which lock each method takes, which is the thing to study in this phase.
+- Lock-free or sharded designs: that is Phases 3 and 4. This phase is deliberately the naive baseline.
+
+**Expected, to be tested:** `SharedMutexStore` is not automatically faster for a 90% read mix with ~100 ns operations, because every reader still performs an atomic update to the shared reader count (see `docs/BENCHMARKS.md`).
+
+---
+
+## D-009: Server design for the gRPC baseline (2026-11-02)
+
+**Authorship:** chosen by Claude. Ratul was asked (sync API vs callback API plus our `ThreadPool`) and had not answered when the work was requested; this is the recommended option, flagged here so it can be changed.
+
+**Chosen:** gRPC **callback API**. A handler grabs the call's reactor, hands the store work to our `ThreadPool` (or runs it inline when `--workers=0`), and the worker completes the call with `reactor->Finish()`.
+- `--workers=N > 0`: our hand-built `ThreadPool` of N threads runs the store call. This is the literal Phase 2 design (thread pool + global mutex) and exercises the pool.
+- `--workers=0`: the store call runs on gRPC's own thread. This is the comparison point that shows the cost of the extra queue hop.
+- Request and response objects stay valid until `Finish()`, so tasks capture raw pointers safely.
+- `Get` copies the value out of the store under the lock into a local string, then moves it into the response.
+
+**Rejected**
+- **Sync API:** simplest and avoids the hop, but leaves our `ThreadPool` out of the request path and gives no built-in way to compare "inline vs pool".
+- **Custom socket server with epoll/kqueue:** out of scope for the baseline; gRPC is in the plan.
+- **gRPC servers built with sanitizers:** the system gRPC libraries are not instrumented, so TSan would report false races inside them. gRPC targets build only in non-sanitizer presets; the locks and pool are TSan-tested separately in process.
+
+**Idempotency:** Get is read-only. Put is idempotent. Delete's final state is idempotent but its reply (`existed`) changes on a retry. Documented in `proto/kv.proto`. Clients do not retry in the benchmark.
+
+**Load generator:** each client thread has its own channel and TCP connection (`GRPC_ARG_USE_LOCAL_SUBCHANNEL_POOL`) and one outstanding request at a time. Open loop: intended-time latency, no coordinated omission. Closed loop: throughput only. Any RPC error invalidates a run and is printed.
+
+**Limits:** client and server share one machine and its 10 cores (more client threads than cores at 64 clients); loopback TCP, no real network; macOS cannot pin threads.
+
+---
+
 ## Open questions
 
 - Apple clang is 21.0.0. Whether `std::hardware_destructive_interference_size` is available is still to verify in Phase 5.

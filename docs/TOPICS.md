@@ -50,7 +50,7 @@ Protobuf defines messages in a schema and generates compact binary serialisation
 Amdahl's law says that if a fraction `p` of work is parallel across `n` workers, speedup is at most `1 / ((1 - p) + p / n)`. A serial section, such as one global mutex, caps speedup no matter how many threads you add. Contention also adds cost: waiting threads spin or sleep, and the lock's cache line bounces between cores.
 **Why it matters:** explains why the Phase 2 mutex baseline stops scaling, which motivates sharding.
 **Interview questions:** (1) If 10% of a request is serial, what is the maximum speedup on 16 cores? (2) Why can more threads make a contended lock slower?
-**Study:** CS:APP Ch. 5 (performance, Amdahl's law) and Ch. 12.
+**Study:** CS:APP §1.9.1 (Amdahl's law) and §12.6 (speedup and efficiency of parallel programs). Correction: an earlier version of this line said Ch. 5.
 
 ---
 
