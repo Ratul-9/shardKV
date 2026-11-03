@@ -75,5 +75,7 @@ CS:APP = Bryant & O'Hallaron, *Computer Systems: A Programmer's Perspective*, 3r
 - Closed-loop maximum-throughput measurement — Gil Tene, "How NOT to Measure Latency"
 - Isolating one cost by measuring it in process (no network) vs end to end — CS:APP §5.14 (profiling); Brendan Gregg, *Systems Performance*
 - Oversubscription (more client threads than cores, client and server on one machine) — CS:APP §8.2.2 (concurrent flows), §12.6
+- Sleep overshoot and timer coalescing (leeway proportional to the sleep) — Apple, *Energy Efficiency Guide for Mac Apps* (timer coalescing); not in CS:APP; see `docs/BENCHMARKS.md` B-009
+- libc++ `std::shared_mutex` built from a mutex and condition variables (heavier than a reader counter) — the SDK header `shared_mutex`; not in CS:APP
 - Scripted benchmarking and reproducibility (command, hardware, commit hash, load average) — see `docs/BENCHMARKS.md`; not in CS:APP
 - Build and run only what the machine supports (macOS: no core pinning, no `perf`) — Linux man pages `sched_setaffinity(2)`, `perf(1)`; not in CS:APP

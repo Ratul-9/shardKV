@@ -108,8 +108,174 @@ Equivalent single-thread throughput (1 / mean time, key generation included): Ge
 
 ---
 
+## Phase 2 environment and method (applies to B-005 to B-010)
+
+- Same hardware and toolchain as above. Run on 2026-11-03 with only Claude Code and VS Code open (WhatsApp, Spotify and others closed). A previous attempt with WhatsApp running was discarded.
+- Load average at the start of the closed-loop runs: 2.2 (not silent). It climbs to 15-27 *during* the 64-client runs because the benchmark's own threads count towards the load average, so the end-of-run figure is not background load. Charger and thermal state were not recorded; the user reported the Mac heating up.
+- The client threads and the store (or server) share the same 10 cores (4 performance + 6 efficiency). With 16 and 64 clients the machine is oversubscribed. No core pinning is possible on macOS.
+- Workload: 90% Get / 10% Put, 16-byte keys, 64-byte values, uniform random keys. Every Get copies the value into a reused buffer (so the unlocked `none` reference does the same work as the locked stores).
+- Repetitions: 3 per closed-loop cell; tables show the median with (min-max). Open-loop cells are single runs.
+- Scripts: `scripts/bench_inprocess.sh`, `scripts/bench_grpc.sh`; tables made by `scripts/summarize_results.py`. Raw output: `bench/results/phase2_*.txt`, each with its commit hash in the header.
+- Closed-loop results: commit `3de99c5`. Open-loop results: re-run at commit `4e748d1` after a harness fix (see B-009); the pre-fix open-loop files are kept as `*_before_sleepfix.txt`.
+
+---
+
+## B-005: Phase 2, in-process lock contention, closed loop (maximum throughput)
+
+- **Tool:** `contention --mode=closed` (no network), 4 s measured after 1 s warm-up, 3 repetitions. `none` is the bare single-threaded `Store` (valid only with 1 client).
+- **Command:** `scripts/bench_inprocess.sh 3 closed`
+- **Raw:** `bench/results/phase2_inprocess_closed.txt`
+
+Throughput in ops/s, median of 3 (min-max):
+
+| 1,000,000 keys | 1 client | 4 clients | 16 clients | 64 clients |
+|---|---|---|---|---|
+| `none` (no lock, 1 thread) | 5.31M (5.16-5.45) | | | |
+| `MutexStore` | 4.78M (4.56-4.88) | 1.90M (1.88-1.91) | 2.20M (2.20-2.22) | 2.23M (2.13-2.24) |
+| `SharedMutexStore` | 3.45M (3.44-3.46) | 1.42M (1.42-1.44) | 0.54M (0.53-0.54) | 0.33M (0.32-0.33) |
+
+| 1,000 keys | 1 client | 4 clients | 16 clients | 64 clients |
+|---|---|---|---|---|
+| `none` (no lock, 1 thread) | 47.24M (45.27-48.01) | | | |
+| `MutexStore` | 40.44M (40.04-44.45) | 13.31M (12.02-13.53) | 9.44M (8.83-9.59) | 9.20M (9.06-9.72) |
+| `SharedMutexStore` | 33.45M (31.63-34.03) | 4.61M (4.55-4.70) | 1.94M (1.93-1.98) | 1.62M (1.60-1.68) |
+
+**Interpretation**
+- **Adding clients makes the mutex store slower, not faster.** 1M keys: 4.78M ops/s with 1 client, 1.90M with 4 (a 60% drop), then a plateau near 2.2M. 1K keys: 40.4M, then 13.3M, then 9.4M and 9.2M. Spread is under 10% in every mutex cell, so these differences are real.
+- **Why (Amdahl plus lock cost):** almost the entire operation (hash, lookup, copy) runs inside the lock; only key generation (~11 ns of a ~21 ns operation at 1K keys) is outside, so even perfect scaling would give at most about 2x at 1K keys. The measured result is below 1x because the lock itself costs more than the work it protects once threads contend: the lock word's cache line moves between cores and blocked threads sleep and wake. (The ~11 ns share comes from the Phase 1 key-generation measurement; it is an estimate.)
+- **Uncontended lock cost:** one client with `MutexStore` is 10% slower than no lock at 1M keys (4.78M vs 5.31M) and 14% slower at 1K keys (40.4M vs 47.2M).
+- **The `shared_mutex` hypothesis is falsified for this workload and platform.** `SharedMutexStore` was slower than `MutexStore` at every client count: 0.72x with 1 client, 0.75x with 4, 0.25x with 16 and 0.15x with 64 at 1M keys (0.83x, 0.35x, 0.21x, 0.18x at 1K keys). The expectation that "90% reads means readers run in parallel and it wins" does not hold when the critical section is about 100 ns or less.
+- **Platform caveat for `shared_mutex`:** on this machine libc++'s `std::shared_mutex` is built from an internal `std::mutex` plus two condition variables (confirmed in the SDK header `shared_mutex`, lines 158-160), so every `lock_shared()` briefly takes that internal mutex. That is heavier than a bare reader-count update and makes the gap larger than it may be elsewhere. Do not generalise: re-measure on Linux with libstdc++ (which uses `pthread_rwlock`) before quoting the ratio.
+- **The plateau at 16 and 64 clients** is the machine saturated (10 cores): more threads than cores adds no throughput.
+
+---
+
+## B-006: Phase 2, in-process lock contention, open loop (latency at a fixed offered rate)
+
+- **Tool:** `contention --mode=open`, 6 s measured after 1 s warm-up, single run per cell, 1M keys, 90% Get / 10% Put. Offered rate is the TOTAL, split evenly across clients. Latency is measured from each operation's intended start time.
+- **Commit:** `4e748d1` (after the sleep fix in B-009). **Command:** `scripts/bench_inprocess.sh 1 open`
+- **Raw:** `bench/results/phase2_inprocess_open.txt`; pre-fix run for comparison: `phase2_inprocess_open_before_sleepfix.txt`.
+
+At 200,000 ops/s offered (about 10% of the mutex store's capacity; every cell achieved 200,000):
+
+| Store | Clients | p50 | p99 | p999 | max |
+|---|---|---|---|---|---|
+| `none` | 1 | 503 ns | 839 ns | 7.5 us | 460 us |
+| `MutexStore` | 1 | 543 ns | 839 ns | 6.3 us | 215 us |
+| `SharedMutexStore` | 1 | 503 ns | 839 ns | 8.3 us | 1.30 ms |
+| `MutexStore` | 4 | 459 ns | 879 ns | 721 us | 4.62 ms |
+| `SharedMutexStore` | 4 | 459 ns | 879 ns | 729 us | 9.16 ms |
+| `MutexStore` | 16 | 543 ns | 26.4 us | 2.23 ms | 8.20 ms |
+| `SharedMutexStore` | 16 | 631 ns | 50.7 us | 397 us | 2.72 ms |
+| `MutexStore` | 64 | 1.6 us | 145 us | 393 us | 8.19 ms |
+| `SharedMutexStore` | 64 | 2.8 us | 4.78 ms | 10.2 ms | 19.5 ms |
+
+At 2,000,000 ops/s offered (more than the store can sustain with 4 or more clients, so the system is overloaded):
+
+| Store | Clients | achieved ops/s | p50 |
+|---|---|---|---|
+| `MutexStore` | 4 / 16 / 64 | 1.15M / 1.63M / 1.69M | 2.5 s / 0.83 s / 0.79 s |
+| `SharedMutexStore` | 4 / 16 / 64 | 1.14M / 0.49M / 0.29M | 2.6 s / 10.6 s / 20.4 s |
+
+**Interpretation**
+- **With one client the lock costs almost nothing in latency:** p50 543 ns (mutex) vs 503 ns (no lock), and p99 is identical (839 ns).
+- **At low load, medians stay sub-microsecond up to 16 clients; tails do not.** At 64 clients `MutexStore` has p99 145 us but `SharedMutexStore` has p99 4.8 ms and p999 10.2 ms at the same 10% load. That agrees with the throughput result (B-005): the shared lock is much more expensive per operation, and with 64 threads on 10 cores a lock holder that gets descheduled stalls the others.
+- **p999 and max in the milliseconds at 4 clients are identical for both stores** (about 0.72 ms, 4.6-9 ms), so they are operating-system scheduling noise on this machine, not lock behaviour. Single runs: do not read differences of a few tens of percent in tails.
+- **The 2M ops/s rows are overload tests, not tail latencies.** Offered load exceeds capacity, so a backlog grows for the whole window and open-loop latency (charged from the intended time) reaches seconds. Their useful content is the achieved rate: it matches B-005's ordering (`SharedMutexStore` collapses to 0.29M at 64 clients).
+- **The sleep fix removed a harness artifact:** at 16 clients, `MutexStore` p99 was 20.7 ms before the fix and is 26 us after.
+
+---
+
+## B-007: Phase 2, gRPC end to end, closed loop (maximum throughput)
+
+- **Setup:** `kv_server` and `kv_client` on the same machine over loopback TCP. Each client is a thread with its own channel (own connection) and one outstanding request. 1M keys prefilled. 4 s measured after 1 s warm-up, 3 repetitions, 0 RPC errors in all runs.
+- **Configurations:** `mutex 0` = `MutexStore`, handlers run inline on gRPC's own threads. `mutex 8` = `MutexStore` with our `ThreadPool` of 8 workers. `shared 8` = `SharedMutexStore` with the pool of 8.
+- **Command:** `scripts/bench_grpc.sh 3 closed`
+- **Raw:** `bench/results/phase2_grpc_closed.txt`
+
+Throughput in ops/s, median of 3 (min-max):
+
+| Server | 1 client | 4 clients | 16 clients | 64 clients |
+|---|---|---|---|---|
+| `mutex`, inline (workers=0) | 15.5K (15.4-15.6) | 32.0K (31.7-32.9) | 51.8K (50.4-53.1) | 52.3K (50.9-54.6) |
+| `mutex`, pool of 8 | 14.4K (14.2-14.5) | 24.8K (24.5-25.7) | 40.2K (40.0-40.3) | 40.0K (39.9-40.2) |
+| `shared`, pool of 8 | 13.1K (13.1-13.1) | 23.7K (23.2-24.0) | 40.1K (39.0-40.5) | 40.6K (40.2-40.6) |
+
+**Interpretation**
+- **At the service level the lock is not the bottleneck.** The server tops out near 52K requests/s, while the in-process mutex store alone handles about 2.2M ops/s. So the store lock accounts for roughly 2% of the cost of a request; the rest is gRPC (serialisation, HTTP/2, system calls) and the client sharing the same cores.
+- **`mutex 8` and `shared 8` are within noise of each other** at 4, 16 and 64 clients (differences under 3%); at 1 client `shared` is about 9% lower (13.1K vs 14.4K, tight ranges), which is consistent with its higher uncontended cost in B-005. The in-process gap of 4-7x between the two stores is invisible here.
+- **The thread-pool hop costs throughput:** with the pool, 22-23% less than inline at 4, 16 and 64 clients (24.8K vs 32.0K, 40.2K vs 51.8K, 40.0K vs 52.3K) and 7% less at 1 client. Handing the work to another thread adds a queue operation, a wake-up and a context switch to every request, and on this saturated 10-core machine nothing is gained in return because the store work is tiny.
+- **Scaling:** throughput rises with clients up to 16 (the machine saturates), then flat at 64.
+- **Limits:** client and server share cores, so the ceiling reflects both. Loopback only. No core pinning.
+
+---
+
+## B-008: Phase 2, gRPC end to end, open loop (latency at 5,000 ops/s offered)
+
+- **Setup:** as B-007. Offered load is 5,000 requests/s TOTAL (well below every configuration's capacity), split across clients. 6 s measured after 1 s warm-up, single run per cell, 0 RPC errors.
+- **Commit:** `4e748d1`. **Command:** `scripts/bench_grpc.sh 1 open`. **Raw:** `bench/results/phase2_grpc_open.txt` (pre-fix: `phase2_grpc_open_before_sleepfix.txt`).
+
+| Server | Clients | p50 | p99 | p999 | max |
+|---|---|---|---|---|---|
+| `mutex`, inline | 1 | 65.0 us | 73.7 us | 97.3 us | 124 us |
+| `mutex`, pool of 8 | 1 | 68.6 us | 81.9 us | 107.5 us | 144 us |
+| `shared`, pool of 8 | 1 | 67.6 us | 87.0 us | 178 us | 1.56 ms |
+| `mutex`, inline | 4 | 373 us | 447 us | 573 us | 1.26 ms |
+| `mutex`, pool of 8 | 4 | 389 us | 471 us | 582 us | 1.28 ms |
+| `shared`, pool of 8 | 4 | 377 us | 500 us | 9.83 ms | 12.2 ms |
+| `mutex`, inline | 16 | 926 us | 1.28 ms | 16.5 ms | 18.9 ms |
+| `mutex`, pool of 8 | 16 | 942 us | 1.21 ms | 1.49 ms | 1.84 ms |
+| `shared`, pool of 8 | 16 | 950 us | 1.20 ms | 1.34 ms | 1.66 ms |
+| `mutex`, inline | 64 | 2.69 ms | 3.41 ms | 3.67 ms | 3.97 ms |
+| `mutex`, pool of 8 | 64 | 2.72 ms | 3.41 ms | 3.60 ms | 3.83 ms |
+| `shared`, pool of 8 | 64 | 2.72 ms | 3.38 ms | 3.67 ms | 4.05 ms |
+
+**Interpretation**
+- **The clean number is the 1-client row: a request/response round trip over loopback takes about 65-69 us at p50 and 74-87 us at p99** for all three servers. The pool hop adds about 4 us at p50 (65.0 vs 68.6 us); this is a single run, so treat it as "a few microseconds".
+- **The three configurations are indistinguishable at every client count** (p50 within 3% of each other), so the lock and the pool do not drive these latencies. Isolated tail spikes (4 clients `shared`: p999 9.8 ms; 16 clients inline: p999 16.5 ms) occur in one configuration or another without a pattern and are operating-system noise in single runs.
+- **Latency still grows with the number of clients (65 us, 0.37 ms, 0.93 ms, 2.7 ms) although offered load is constant at 5,000/s.** This is NOT a server property and is undiagnosed: it persisted after the harness fix (B-009; the pre-fix values were 1.28 ms at 16 clients and 4.46 ms at 64), it is identical across servers, and the in-process control (B-010) shows the load generator's own wake-up lateness explains only about 0.1 ms of it at 64 clients. The remaining cause is somewhere in the gRPC client/server and operating-system path for many sparsely used connections on one machine (idle wake-ups are the leading suspect, unproven). Do not quote the 4, 16 and 64 client rows as server latency. Re-measure on Linux with the client on a separate machine.
+
+---
+
+## B-009: Harness finding: `sleep_for` overshoot biased the first open-loop results (fixed)
+
+- **What was wrong:** the open-loop runner slept until 100 us before each deadline, then spun. Measured on this Mac (`sleep_for` called 100 times per size, idle machine): the overshoot is proportional to the requested sleep, about 25-30% of it.
+
+| `sleep_for` requested | median overshoot |
+|---|---|
+| 100 us | 31 us |
+| 200 us | 57 us |
+| 800 us | 213 us |
+| 3.2 ms | 816 us |
+| 12.7 ms | 3.19 ms |
+
+  A fixed 100 us margin is far too small for long waits, so every operation started late and the lateness was charged to latency (latency is measured from the intended start). It also meant that for intervals under 200 us the runner never slept (pure spinning), so 16 clients at 200K ops/s kept 16 threads spinning on 10 cores and starved each other.
+- **Effect on the first results (kept in `*_before_sleepfix.txt`):** gRPC open-loop latency at a constant 5,000 ops/s offered rose with the client count (p50 65 us, then ~0.4 ms, ~1.3 ms, ~4.4 ms for 1, 4, 16, 64 clients) and was identical across all three server configurations. It matched about 0.35 x the per-client interval (200 us, 800 us, 3.2 ms, 12.8 ms), which pointed at the load generator and not the server. The in-process 16-client tails (p99 about 21-29 ms at only 10% of capacity) were the same bug.
+- **Fix (commit `4e748d1`):** sleep for half of the remaining time, repeat, and spin only below 50 us. The overshoot of a half-length sleep cannot pass the deadline as long as the platform's overshoot stays under 50% of the request (it is 25-31% here). A regression test, `OpenLoop.LongIntervalsDoNotAddSleepOvershootToLatency`, failed on the old code and passes on the new.
+- **What this does not change:** closed-loop throughput (B-005, B-007) has no waiting and is unaffected. The Phase 1 numbers are unaffected: its intervals are 5 us, which are spun both before and after.
+
+---
+
+## B-010: Control: how much of the sparse-traffic latency is the load generator? (in process)
+
+- **Question:** at 5,000 ops/s over many clients (12.8 ms between requests per client at 64 clients), how much latency does the load generator alone add?
+- **Method:** `contention --store=mutex --mode=open --rate=5000 --seconds=4 --keys=100000`, no network, commit `4e748d1`, run by hand (machine load average 6.5, not quiet). **Raw:** `bench/results/phase2_inprocess_sparse_control.txt`.
+
+| Clients | p50 | p99 | p999 |
+|---|---|---|---|
+| 1 | 1.1 us | 4.5 us | 18 us |
+| 4 | 7.6 us | 60 us | 92 us |
+| 16 | 11 us | 112 us | 4.9 ms |
+| 64 | 90 us | 500 us | 8.7 ms |
+
+**Interpretation:** even with no network, per-operation latency grows with the number of sparse clients (1 us to 90 us at p50). That is wake-up lateness of threads that have been asleep: a floor of the load generator on this machine. It is about 30 times smaller than the 2.7 ms seen through gRPC at 64 clients, so it cannot explain the gRPC result. It also means open-loop latencies below roughly 0.1 ms with 64 sparse clients on this machine include generator wake-up noise. Single run, loaded machine: use as an order of magnitude only.
+
+---
+
 ## Not yet measured / known limits
-- Single-threaded only; multi-threaded numbers start in Phase 2.
-- No Linux or x86 baseline yet (needed from Phase 3 for pinning and `perf`).
+- No Linux or x86 results yet (needed from Phase 3 for pinning and `perf`). The `shared_mutex` ratio in B-005 is specific to libc++ on macOS and must be re-measured on Linux before it is quoted.
+- gRPC open-loop latency with 4 or more clients grows with the client count for an undiagnosed reason (B-008, B-010). Client and server share one machine and one set of cores; a separate client machine is needed for clean multi-client latency.
+- The gRPC server uses gRPC's default internal threading plus our pool; neither the gRPC thread count nor the pool size was tuned (pool fixed at 8).
 - The `string_view` temporary-`std::string` lookup cost (see `DESIGN.md` D-003) has not been measured against a transparent-hash variant.
-- None of the numbers above may go on the CV without the hardware, command and commit given in this file.
+- All Phase 2 numbers come from a Mac with other processes (editor, assistant) running and thermal state unrecorded; differences under about 10% in throughput and 25% in tails should not be treated as real.
+- None of the numbers in this file may go on the CV without the hardware, command and commit given in this file.

@@ -145,6 +145,23 @@ Decision log and trade-offs. Each entry: what we chose, what we rejected, and wh
 
 ---
 
+## D-010: Open-loop wait strategy: sleep half the remaining time, spin only at the end (2026-11-03)
+
+**Problem found by measurement:** the Phase 0 runner slept until a fixed 100 us before each deadline and then spun. On macOS `sleep_for` overshoots by about 25-30% of the requested time (12.7 ms returns ~3.2 ms late), so long waits made every operation start late, and open-loop latency (measured from the intended time) absorbed that lateness. For intervals under 200 us it never slept at all, so many clients meant many spinning threads fighting over the cores. See `docs/BENCHMARKS.md` B-009. The Phase 0 note that the 100 us margin was "an untested guess" was right.
+
+**Chosen:** `WaitUntil` sleeps for half of the remaining time and re-checks, repeating until less than 50 us remain, then spins. The overshoot of each sleep is at most about 31% of that sleep, so it can never carry the wait past the deadline, and the remaining time shrinks geometrically (about five sleeps for a 12 ms wait).
+
+**Rejected**
+- A larger fixed spin margin (for example 5 ms): wastes most of a core per waiting client, and with 64 clients that is more cores than the machine has.
+- A single shared scheduler thread that dispatches operations to clients: removes per-client jitter but changes what is being measured and is much more code.
+- `sleep_until` with an absolute time: still subject to the same proportional leeway.
+
+**Verified by** `OpenLoop.LongIntervalsDoNotAddSleepOvershootToLatency` (failed on the old code, passes now, asserts on the median so a single scheduler hiccup does not fail it), the full suite under all four presets, and the before/after open-loop runs kept in `bench/results/*_before_sleepfix.txt`.
+
+**Remaining limit:** with many clients and long intervals, wake-up lateness of sleeping threads still adds up to about 0.1 ms on this machine (B-010).
+
+---
+
 ## Open questions
 
 - Apple clang is 21.0.0. Whether `std::hardware_destructive_interference_size` is available is still to verify in Phase 5.

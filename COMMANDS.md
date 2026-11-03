@@ -52,7 +52,7 @@ for p in debug asan ubsan tsan; do
 done
 ```
 
-Expected today: `100% tests passed, 0 tests failed out of 23` four times.
+Expected now: `100% tests passed, 0 tests failed out of 42` four times.
 
 **Rule from the project:** concurrent code is not done until it passes `tsan` and a stress test.
 
@@ -115,7 +115,7 @@ Prints requested bytes per entry, allocations per entry, and RSS delta per entry
 
 ### 3e. Lock contention, in process (Phase 2): `contention`
 
-Needs your `MutexStore` / `SharedMutexStore` implemented (the stubs abort). Usage: `contention [--store=none|mutex|shared] [--clients=N] [--mode=open|closed] [--rate=TOTAL_OPS_PER_SEC] [--seconds=S] [--warmup=S] [--keys=K] [--read-pct=P]`
+Usage: `contention [--store=none|mutex|shared] [--clients=N] [--mode=open|closed] [--rate=TOTAL_OPS_PER_SEC] [--seconds=S] [--warmup=S] [--keys=K] [--read-pct=P]`
 
 | What | Command |
 |---|---|
@@ -125,7 +125,34 @@ Needs your `MutexStore` / `SharedMutexStore` implemented (the stubs abort). Usag
 | Latency percentiles at a fixed offered load (4 clients, 200K ops/s total) | `./build/release/bench/contention --store=mutex --clients=4 --mode=open --rate=200000 --seconds=10` |
 | Write-heavy mix | add `--read-pct=50` |
 
-`--mode=closed` reports only throughput; use `--mode=open` for latency. Note the clients and the store share the same 10 cores, so 64 clients oversubscribe the machine; record that with the result. (These loops use `$c`: in zsh they work as written because `$c` is a single argument.)
+`--mode=closed` reports only throughput (and suffers coordinated omission, so no latency); use `--mode=open` for latency. Keep the offered rate well below the throughput you measured in closed mode, or you are measuring overload. The clients and the store share the same cores, so 64 clients oversubscribe the machine; record that with the result.
+
+### 3f. gRPC server and load generator (Phase 2)
+
+Built only in the non-sanitizer presets (needs gRPC and Protobuf installed: `brew install grpc protobuf`).
+
+| What | Command |
+|---|---|
+| Start the server (mutex store, our ThreadPool of 8, 1M keys prefilled) | `./build/release/bench/kv_server --store=mutex --workers=8 --keys=1000000 --port=50051` |
+| Same, handlers inline on gRPC's threads (no pool hop) | `./build/release/bench/kv_server --store=mutex --workers=0` |
+| Same, shared_mutex store | `./build/release/bench/kv_server --store=shared --workers=8` |
+| Stop the server | `Ctrl-C` in its terminal (or `kill -TERM <pid>`) |
+| Closed-loop throughput, 16 clients | `./build/release/bench/kv_client --target=127.0.0.1:50051 --clients=16 --mode=closed --seconds=5 --keys=1000000` |
+| Open-loop latency, 4 clients, 5000 ops/s total | `./build/release/bench/kv_client --target=127.0.0.1:50051 --clients=4 --mode=open --rate=5000 --seconds=6 --keys=1000000` |
+
+Use the same `--keys` on server and client. A run that prints `rpc_errors` above 0 is invalid. The server prints `READY` once it is listening. Do not start the server in two terminals on the same port.
+
+### 3g. The Phase 2 benchmark matrices and summary
+
+| What | Command |
+|---|---|
+| In-process matrix, everything (about 12 minutes) | `scripts/bench_inprocess.sh 3` |
+| In-process, closed loop only / open loop only | `scripts/bench_inprocess.sh 3 closed` / `scripts/bench_inprocess.sh 1 open` |
+| gRPC matrix, everything (about 12 minutes) | `scripts/bench_grpc.sh 3` |
+| gRPC, closed loop only / open loop only | `scripts/bench_grpc.sh 3 closed` / `scripts/bench_grpc.sh 1 open` |
+| Print median tables from all result files | `python3 scripts/summarize_results.py` |
+
+The scripts start and stop the server themselves, write to `bench/results/phase2_*.txt` (overwriting), and put the commit hash and machine load in each file's header. Build the release preset first. Close other apps, plug in the charger, and check `uptime` before starting; the matrices use every core, so the Mac will get warm.
 
 ---
 

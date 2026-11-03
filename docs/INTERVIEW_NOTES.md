@@ -80,3 +80,19 @@
 - Your answer: Yes, because many readers can proceed at once and only 10% are writes.
 - Grade: C+. Right principle, likely wrong conclusion for this case.
 - Corrected answer: a read lock still performs an atomic increment on a shared reader count, so concurrent readers still contend on one cache line. With a ~100 ns critical section that overhead can cancel or exceed the saving, so `shared_mutex` is often no faster, or slower, than a plain mutex. `shared_mutex` pays off when the critical section is long compared with the locking overhead. **Hypothesis recorded; we will measure it** (`contention --store=mutex` vs `--store=shared`).
+
+---
+
+## Phase 2 drill (questions asked, answers pending)
+
+1. In the in-process results, `MutexStore` throughput *fell* from 4.78M ops/s with 1 client to 1.90M with 4. Explain why, using Amdahl's law and what happens to the lock itself.
+2. `SharedMutexStore` was slower than `MutexStore` at every client count, even though 90% of operations are reads. Why? Say what you would have to change in the workload for `shared_mutex` to win, and why this result may differ on Linux.
+3. The gRPC server tops out near 52K requests/s, but the in-process mutex store handles about 2.2M ops/s. What does that tell you about where the bottleneck is? Why did running the work on our `ThreadPool` cost about 22% throughput compared with running inline?
+4. The first open-loop gRPC results showed latency growing with the number of clients at a constant offered load. How did we find that this came from the load generator, what was the root cause, and why does the fix sleep for half the remaining time instead of using a bigger fixed margin?
+5. Thread pool: (a) why is `stop_` set under the mutex? (b) why is the wait a predicate loop? (c) why must tasks run outside the lock? (d) why does shutdown exit only when the queue is also empty?
+
+## Still owed (carry into Phase 3)
+- Phase 1 drill Q4 and Q5, and the Phase 2 pre-check Q1 and Q2: retry in your own words.
+- Phase 2 drill above: answer in your own words.
+- Earlier re-answers (p99 tail amplification, coordinated omission cause, sleep-then-spin, cache-miss count, `string_view` invalidation) are self-reported and ungraded.
+- Update to the Phase 0 Q5 model answer: the 100 us spin margin was measured and found wrong on macOS (sleep overshoot is proportional to the sleep length); see D-010.

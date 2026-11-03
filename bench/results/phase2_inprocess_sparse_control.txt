@@ -1,0 +1,12 @@
+# commit=4e748d1 date=2026-11-03_09:55 (manual run, copied from the terminal)
+# Control for the gRPC open-loop client-count effect: in-process mutex store, 5000 ops/s TOTAL, 100K keys, 4 s measured after 1 s warm-up.
+# command: ./build/release/bench/contention --store=mutex --clients=C --mode=open --rate=5000 --seconds=4 --warmup=1 --keys=100000
+# machine load average at the start: 6.48 (not quiet: the gRPC re-run had just finished)
+## store=mutex clients=1 rate=5000
+latency ns: min=84 p50=1087 p90=3167 p99=4479 p999=18431 max=1645042 mean=1920
+## store=mutex clients=4 rate=5000
+latency ns: min=291 p50=7615 p90=26111 p99=60415 p999=92159 max=2479125 mean=13064
+## store=mutex clients=16 rate=5000
+latency ns: min=208 p50=11263 p90=58879 p99=111615 p999=4915199 max=8115292 mean=34059
+## store=mutex clients=64 rate=5000
+latency ns: min=334 p50=90111 p90=245759 p99=499711 p999=8650751 max=8925500 mean=135426
