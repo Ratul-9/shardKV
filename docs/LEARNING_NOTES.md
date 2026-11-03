@@ -2,7 +2,7 @@
 
 Everything Ratul has studied, answered, got wrong and fixed, in one place. Updated at the end of every phase, and whenever a concept comes up that is worth keeping. `docs/INTERVIEW_NOTES.md` holds the graded drills; this file holds the knowledge behind them.
 
-CS:APP page numbers are left as `pp. ___` for Ratul to fill in from the physical book. Chapters and sections come from the mapping in `PROJECT_CONTEXT.md`, and I have not guessed page numbers.
+CS:APP references give chapters and sections (no page numbers), taken from the mapping in `PROJECT_CONTEXT.md`.
 
 Legend: **[Knew]** you stated it correctly, **[Refined]** you were right but it was sharpened, **[Corrected]** a misunderstanding that was fixed, **[To do]** you still owe an answer or action.
 
@@ -13,10 +13,10 @@ Legend: **[Knew]** you stated it correctly, **[Refined]** you were right but it 
 ### Topics Studied
 - Latency as a distribution: p50 / p99 / p999 and histograms (HdrHistogram-style). Resource: Gil Tene, *How NOT to Measure Latency* (talk). Not in CS:APP.
 - Coordinated omission, open-loop vs closed-loop load generation. Same resource. Not in CS:APP.
-- Benchmark hygiene: warm-up, steady state, stopping the optimiser deleting the work (`benchmark::DoNotOptimize`, `ClobberMemory`). Google Benchmark docs. CS:APP Ch. 5 covers optimisation and profiling (pp. ___), not benchmark methodology.
-- Sanitizers: ASan, UBSan, TSan, and why ASan and TSan can't be combined. clang.llvm.org sanitizer docs. Memory-bug background in CS:APP Ch. 9 (pp. ___); races in Ch. 12 (pp. ___).
+- Benchmark hygiene: warm-up, steady state, stopping the optimiser deleting the work (`benchmark::DoNotOptimize`, `ClobberMemory`). Google Benchmark docs. CS:APP Ch. 5 covers optimisation and profiling, not benchmark methodology.
+- Sanitizers: ASan, UBSan, TSan, and why ASan and TSan can't be combined. clang.llvm.org sanitizer docs. Memory-bug background in CS:APP Ch. 9; races in Ch. 12.
 - Build tooling: CMake presets, one build tree per sanitizer, `FetchContent` to pin dependencies. CMake docs. Not in CS:APP.
-- Timer behaviour: sleep wake-up jitter vs spinning (CS:APP Ch. 8 for processes and scheduling, pp. ___).
+- Timer behaviour: sleep wake-up jitter vs spinning (CS:APP Ch. 8 for processes and scheduling).
 
 ### What you have shown you know (from your answers)
 - **[Knew]** A closed-loop generator under-counts a stall: 1 slow sample recorded where 1000 requests were due.
@@ -61,14 +61,14 @@ Legend: **[Knew]** you stated it correctly, **[Refined]** you were right but it 
 ## Phase 1: Single-threaded baseline store
 
 ### Topics Studied
-- `std::unordered_map` memory layout: bucket array plus separately allocated nodes, pointer chasing, cache misses. CS:APP Ch. 6 (cache-friendly code, pp. ___) and Ch. 9 (dynamic allocation, pp. ___).
+- `std::unordered_map` memory layout: bucket array plus separately allocated nodes, pointer chasing, cache misses. CS:APP Ch. 6 (cache-friendly code) and Ch. 9 (dynamic allocation).
 - Cache sizes on this machine: L1D 64 KB, L1I 128 KB, L2 6 MB (benchmark header). Used to choose 1K / 100K / 1M working sets; 1M entries is about 150 MB, far beyond L2.
 - API ownership: owning copy vs non-owning view, view invalidation (cppreference `std::string_view`). Not in CS:APP.
 - Heterogeneous lookup for unordered containers (C++20): transparent hash and equality avoid a temporary key. cppreference `unordered_map::find`. Not in CS:APP.
 - `insert_or_assign` vs `operator[]` vs `emplace` vs erase-then-insert. cppreference. Not in CS:APP.
 - Small-string optimisation (SSO): libc++ inlines strings up to 22 bytes, libstdc++ up to 15, which changes allocation counts between macOS and Linux. Not in CS:APP; CS:APP Ch. 9 covers the allocator side.
-- Microbenchmark design: working-set size vs cache, on-the-fly key generation, random access, prefill, amortised timing. CS:APP Ch. 6 (locality), Ch. 5 (profiling, pp. ___).
-- Memory footprint: requested bytes (counting `operator new`) vs RSS. CS:APP Ch. 9 (virtual memory, RSS, pp. ___).
+- Microbenchmark design: working-set size vs cache, on-the-fly key generation, random access, prefill, amortised timing. CS:APP Ch. 6 (locality), Ch. 5 (profiling).
+- Memory footprint: requested bytes (counting `operator new`) vs RSS. CS:APP Ch. 9 (virtual memory, RSS).
 - Testing: example tests, edge cases (empty, prefix, NUL bytes, large), model-based random testing, and **mutation testing** (inject bugs to check the tests can fail). Not in CS:APP.
 
 ### What you have shown you know
@@ -135,7 +135,7 @@ Tooling lessons:
 
 ### Topics Studied
 - Mutex cost under contention: blocking and wake-up cost, cache-line bouncing of the lock word. CS:APP §12.4, §12.5.3, §12.6, §8.2.5 (context switches); Drepper §3.3 for coherence (not in CS:APP).
-- Amdahl's law applied to a global lock. CS:APP §1.9.1 and §12.6, pp. ___. (Earlier notes said Ch. 5; that was wrong.)
+- Amdahl's law applied to a global lock. CS:APP §1.9.1 and §12.6. (Earlier notes said Ch. 5; that was wrong.)
 - Thread pools, producer-consumer queues, condition variables, predicate loops, lost wake-ups, draining shutdown. CS:APP §12.5.4-12.5.5 (prethreaded server; CS:APP uses semaphores, not condition variables); *C++ Concurrency in Action* ch. 4 and §9.1.
 - `std::shared_mutex` and the readers-writers problem. CS:APP §12.5.4; *C++ Concurrency in Action* §3.3.2.
 - Thread safety, data races, deadlock. CS:APP §12.7.1-12.7.5.
@@ -150,7 +150,7 @@ Tooling lessons:
 - **[Refined]** Why contention makes things *slower*: wake-up cost and cache-line bouncing, not only waiting.
 - **[To do]** Why copy-after-unlock is unsafe (use-after-free, data race) and what the copy costs (you answered "do not know").
 - **[Corrected]** `shared_mutex` is not automatically better for read-heavy loads. Your prediction was wrong here; measured in B-005 (the reasoning, that readers run in parallel, is right in principle but the critical section is too short).
-- Phase 2 drill: pending.
+- Phase 2 drill: model answers written by Claude (not Ratul's own, not graded) in `docs/INTERVIEW_NOTES.md`.
 
 ### Key Insights
 - **A global mutex makes more clients slower, not just flat.** In process, 1M keys: 4.78M ops/s with 1 client, 1.90M with 4, plateau near 2.2M at 16 and 64 (B-005). Nearly the whole operation is inside the lock, and a contended lock costs more than the 100 ns of work it protects.

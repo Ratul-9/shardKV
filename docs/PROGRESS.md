@@ -4,7 +4,7 @@
 |---|---|---|
 | 0 Foundations and measurement | Done | `phase-0-done` |
 | 1 Single-threaded baseline | Done (drill: 3 of 5 answered) | `phase-1-done` |
-| 2 Naive concurrent server (mutex baseline) | Done (code, tests, measurements); Phase 2 drill pending | `phase-2-done` |
+| 2 Naive concurrent server (mutex baseline) | Done (code, tests, measurements); drill model answers written by Claude, not graded | `phase-2-done` |
 | 3-11 | Not started | |
 
 ## Phase 0 contents
@@ -31,13 +31,13 @@
 - 42 tests pass under debug, ASan, UBSan, TSan
 
 ## Open issues
-- **Phase 2 drill unanswered** (`docs/INTERVIEW_NOTES.md`). Also owed: Phase 1 Q4 and Q5, Phase 2 pre-check Q1 and Q2. Earlier re-answers are self-reported and ungraded.
+- **Phase 2 drill: model answers written by Claude at Ratul's request, not Ratul's own and not graded** (`docs/INTERVIEW_NOTES.md`). Also owed: Phase 1 Q4 and Q5, Phase 2 pre-check Q1 and Q2 in Ratul's own words. Earlier re-answers are self-reported and ungraded.
 - **ThreadPool, locked stores and their design choices (D-007, D-008, D-009) were written by Claude, not Ratul.** They are [HAND-WRITE] items in the plan; Ratul should read them until he can defend each choice (see the drill).
 - Server design (callback API plus ThreadPool) was chosen by Claude because the sync-vs-callback question was not answered; revisit if Ratul prefers the other.
 - gRPC open-loop latency with 4+ clients grows with the client count for an undiagnosed reason (B-008, B-010). Needs a separate client machine and Linux.
 - `shared_mutex` result (B-005) is for libc++ on macOS; re-measure on Linux.
 - All numbers are from a Mac that was running other processes, with thermal state unrecorded; no core pinning on macOS. Re-measure on Linux before Phase 3 comparisons.
-- `pp. ___` CS:APP page numbers in `docs/LEARNING_NOTES.md` still blank (Ratul to fill, or drop them).
+- `` CS:APP page numbers in `docs/LEARNING_NOTES.md` still blank (Ratul to fill, or drop them).
 - Randomised store test only uses keys up to 3 characters (blind spot found by mutation M4).
 - Transparent-hash lookup variant not measured (D-003 follow-up).
 - `clang-format` not installed; `.clang-format` unchecked. No GitHub remote, so CI has never run.

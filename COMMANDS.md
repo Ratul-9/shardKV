@@ -238,4 +238,17 @@ Raw output goes in `bench/results/` (create descriptive names, e.g. `phase2_mute
 
 ---
 
+## 10. Printable PDFs of the notes
+
+| What | Command |
+|---|---|
+| One-time setup of a private Python environment | `python3 -m venv .venv && .venv/bin/pip install reportlab` |
+| Learning notes (each phase starts on a new page) | `.venv/bin/python scripts/md_to_pdf.py docs/LEARNING_NOTES.md docs/print/LEARNING_NOTES.pdf --title "lldstore - Learning Notes" --break-h2` |
+| Interview notes | `.venv/bin/python scripts/md_to_pdf.py docs/INTERVIEW_NOTES.md docs/print/INTERVIEW_NOTES.pdf --title "lldstore - Interview Notes"` |
+| Any other note (for example the references list) | `.venv/bin/python scripts/md_to_pdf.py docs/REFERENCES.md docs/print/REFERENCES.pdf` |
+
+The PDFs are written to `docs/print/` (not tracked by git). Regenerate them after the Markdown changes; they are A4 and use only built-in fonts.
+
+---
+
 *Add new commands here as phases introduce them (the gRPC server and multi-client load generator in Phase 2, Linux/`perf` commands from Phase 3, crash and chaos test runners in Phases 7 and 10).*
