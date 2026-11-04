@@ -207,7 +207,9 @@ TEST(Store, RandomOperationsMatchReferenceModel) {
                 const auto got = store.Get(key);
                 const auto expected = model.find(key);
                 ASSERT_EQ(got.has_value(), expected != model.end()) << "step=" << step;
-                if (got.has_value()) ASSERT_EQ(*got, expected->second) << "step=" << step;
+                if (got.has_value()) {  // braces: gtest macros contain an else (GCC -Wdangling-else)
+                    ASSERT_EQ(*got, expected->second) << "step=" << step;
+                }
                 break;
             }
             default: {
