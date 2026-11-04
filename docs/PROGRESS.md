@@ -35,8 +35,8 @@
 - **ThreadPool, locked stores and their design choices (D-007, D-008, D-009) were written by Claude, not Ratul.** They are [HAND-WRITE] items in the plan; Ratul should read them until he can defend each choice (see the drill).
 - Server design (callback API plus ThreadPool) was chosen by Claude because the sync-vs-callback question was not answered; revisit if Ratul prefers the other.
 - gRPC open-loop latency with 4+ clients grows with the client count for an undiagnosed reason (B-008, B-010). Needs a separate client machine and Linux.
-- `shared_mutex` result (B-005) is for libc++ on macOS; re-measure on Linux.
-- Linux machine set up (D-011): 42 of 42 tests pass in debug, ASan (with leak checking), UBSan and TSan (after the sysctl fix). Still to do there: confirm `perf` counters, map SMT siblings, re-run the Phase 2 matrices into `bench/results/linux`.
+- `shared_mutex` result (B-005): re-measured on Linux (in-process only, 2026-11-04) and it **reverses**: `SharedMutexStore` is 1.24-1.32x faster than `MutexStore` at 1M keys with 4+ clients, where on the Mac it was 0.15-0.75x. The Mac result is libc++-specific. Why libstdc++ is cheaper is undiagnosed (needs `perf`). D-008 has not been revisited in light of this.
+- Linux machine set up (D-011): 42 of 42 tests pass in debug, ASan (with leak checking), UBSan and TSan (after the sysctl fix). In-process Phase 2 matrices re-run into `bench/results/linux` (B-005, B-006). Still to do there: confirm `perf` counters, map SMT siblings, record governor/turbo, pin cores. The gRPC runs cannot be done on Ubuntu 22.04 (gRPC 1.30).
 - All numbers are from a Mac that was running other processes, with thermal state unrecorded; no core pinning on macOS. Re-measure on Linux before Phase 3 comparisons.
 - `` CS:APP page numbers in `docs/LEARNING_NOTES.md` still blank (Ratul to fill, or drop them).
 - Randomised store test only uses keys up to 3 characters (blind spot found by mutation M4).

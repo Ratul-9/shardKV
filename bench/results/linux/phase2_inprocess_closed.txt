@@ -1,0 +1,165 @@
+# commit=8942995 date=2026-11-04_10:37:32 reps=3
+ 10:37:32 up  1:07,  1 user,  load average: 0.12, 0.34, 0.48
+## store=none clients=1 keys=1000000 rep=1
+store=none clients=1 mode=closed keys=1000000 read_pct=90
+throughput=2885696 ops/s (measured_ops=11542784)
+## store=mutex clients=1 keys=1000000 rep=1
+store=mutex clients=1 mode=closed keys=1000000 read_pct=90
+throughput=2988144 ops/s (measured_ops=11952576)
+## store=mutex clients=4 keys=1000000 rep=1
+store=mutex clients=4 mode=closed keys=1000000 read_pct=90
+throughput=1680288 ops/s (measured_ops=6721152)
+## store=mutex clients=16 keys=1000000 rep=1
+store=mutex clients=16 mode=closed keys=1000000 read_pct=90
+throughput=1557840 ops/s (measured_ops=6231360)
+## store=mutex clients=64 keys=1000000 rep=1
+store=mutex clients=64 mode=closed keys=1000000 read_pct=90
+throughput=1535328 ops/s (measured_ops=6141312)
+## store=shared clients=1 keys=1000000 rep=1
+store=shared clients=1 mode=closed keys=1000000 read_pct=90
+throughput=2973504 ops/s (measured_ops=11894016)
+## store=shared clients=4 keys=1000000 rep=1
+store=shared clients=4 mode=closed keys=1000000 read_pct=90
+throughput=2107088 ops/s (measured_ops=8428352)
+## store=shared clients=16 keys=1000000 rep=1
+store=shared clients=16 mode=closed keys=1000000 read_pct=90
+throughput=2005040 ops/s (measured_ops=8020160)
+## store=shared clients=64 keys=1000000 rep=1
+store=shared clients=64 mode=closed keys=1000000 read_pct=90
+throughput=2055248 ops/s (measured_ops=8220992)
+## store=none clients=1 keys=1000000 rep=2
+store=none clients=1 mode=closed keys=1000000 read_pct=90
+throughput=3029552 ops/s (measured_ops=12118208)
+## store=mutex clients=1 keys=1000000 rep=2
+store=mutex clients=1 mode=closed keys=1000000 read_pct=90
+throughput=2964992 ops/s (measured_ops=11859968)
+## store=mutex clients=4 keys=1000000 rep=2
+store=mutex clients=4 mode=closed keys=1000000 read_pct=90
+throughput=1681296 ops/s (measured_ops=6725184)
+## store=mutex clients=16 keys=1000000 rep=2
+store=mutex clients=16 mode=closed keys=1000000 read_pct=90
+throughput=1518224 ops/s (measured_ops=6072896)
+## store=mutex clients=64 keys=1000000 rep=2
+store=mutex clients=64 mode=closed keys=1000000 read_pct=90
+throughput=1549648 ops/s (measured_ops=6198592)
+## store=shared clients=1 keys=1000000 rep=2
+store=shared clients=1 mode=closed keys=1000000 read_pct=90
+throughput=2976656 ops/s (measured_ops=11906624)
+## store=shared clients=4 keys=1000000 rep=2
+store=shared clients=4 mode=closed keys=1000000 read_pct=90
+throughput=2085488 ops/s (measured_ops=8341952)
+## store=shared clients=16 keys=1000000 rep=2
+store=shared clients=16 mode=closed keys=1000000 read_pct=90
+throughput=2023824 ops/s (measured_ops=8095296)
+## store=shared clients=64 keys=1000000 rep=2
+store=shared clients=64 mode=closed keys=1000000 read_pct=90
+throughput=2039136 ops/s (measured_ops=8156544)
+## store=none clients=1 keys=1000000 rep=3
+store=none clients=1 mode=closed keys=1000000 read_pct=90
+throughput=3041712 ops/s (measured_ops=12166848)
+## store=mutex clients=1 keys=1000000 rep=3
+store=mutex clients=1 mode=closed keys=1000000 read_pct=90
+throughput=2998224 ops/s (measured_ops=11992896)
+## store=mutex clients=4 keys=1000000 rep=3
+store=mutex clients=4 mode=closed keys=1000000 read_pct=90
+throughput=1688512 ops/s (measured_ops=6754048)
+## store=mutex clients=16 keys=1000000 rep=3
+store=mutex clients=16 mode=closed keys=1000000 read_pct=90
+throughput=1528976 ops/s (measured_ops=6115904)
+## store=mutex clients=64 keys=1000000 rep=3
+store=mutex clients=64 mode=closed keys=1000000 read_pct=90
+throughput=1472496 ops/s (measured_ops=5889984)
+## store=shared clients=1 keys=1000000 rep=3
+store=shared clients=1 mode=closed keys=1000000 read_pct=90
+throughput=2989776 ops/s (measured_ops=11959104)
+## store=shared clients=4 keys=1000000 rep=3
+store=shared clients=4 mode=closed keys=1000000 read_pct=90
+throughput=2081120 ops/s (measured_ops=8324480)
+## store=shared clients=16 keys=1000000 rep=3
+store=shared clients=16 mode=closed keys=1000000 read_pct=90
+throughput=2039584 ops/s (measured_ops=8158336)
+## store=shared clients=64 keys=1000000 rep=3
+store=shared clients=64 mode=closed keys=1000000 read_pct=90
+throughput=2025856 ops/s (measured_ops=8103424)
+## store=none clients=1 keys=1000 rep=1
+store=none clients=1 mode=closed keys=1000 read_pct=90
+throughput=17806080 ops/s (measured_ops=71224320)
+## store=mutex clients=1 keys=1000 rep=1
+store=mutex clients=1 mode=closed keys=1000 read_pct=90
+throughput=16871360 ops/s (measured_ops=67485440)
+## store=mutex clients=4 keys=1000 rep=1
+store=mutex clients=4 mode=closed keys=1000 read_pct=90
+throughput=4030464 ops/s (measured_ops=16121856)
+## store=mutex clients=16 keys=1000 rep=1
+store=mutex clients=16 mode=closed keys=1000 read_pct=90
+throughput=3905120 ops/s (measured_ops=15620480)
+## store=mutex clients=64 keys=1000 rep=1
+store=mutex clients=64 mode=closed keys=1000 read_pct=90
+throughput=3998384 ops/s (measured_ops=15993536)
+## store=shared clients=1 keys=1000 rep=1
+store=shared clients=1 mode=closed keys=1000 read_pct=90
+throughput=16284752 ops/s (measured_ops=65139008)
+## store=shared clients=4 keys=1000 rep=1
+store=shared clients=4 mode=closed keys=1000 read_pct=90
+throughput=4146016 ops/s (measured_ops=16584064)
+## store=shared clients=16 keys=1000 rep=1
+store=shared clients=16 mode=closed keys=1000 read_pct=90
+throughput=3352944 ops/s (measured_ops=13411776)
+## store=shared clients=64 keys=1000 rep=1
+store=shared clients=64 mode=closed keys=1000 read_pct=90
+throughput=3347568 ops/s (measured_ops=13390272)
+## store=none clients=1 keys=1000 rep=2
+store=none clients=1 mode=closed keys=1000 read_pct=90
+throughput=17739152 ops/s (measured_ops=70956608)
+## store=mutex clients=1 keys=1000 rep=2
+store=mutex clients=1 mode=closed keys=1000 read_pct=90
+throughput=16679632 ops/s (measured_ops=66718528)
+## store=mutex clients=4 keys=1000 rep=2
+store=mutex clients=4 mode=closed keys=1000 read_pct=90
+throughput=4035808 ops/s (measured_ops=16143232)
+## store=mutex clients=16 keys=1000 rep=2
+store=mutex clients=16 mode=closed keys=1000 read_pct=90
+throughput=3264464 ops/s (measured_ops=13057856)
+## store=mutex clients=64 keys=1000 rep=2
+store=mutex clients=64 mode=closed keys=1000 read_pct=90
+throughput=4005072 ops/s (measured_ops=16020288)
+## store=shared clients=1 keys=1000 rep=2
+store=shared clients=1 mode=closed keys=1000 read_pct=90
+throughput=16185184 ops/s (measured_ops=64740736)
+## store=shared clients=4 keys=1000 rep=2
+store=shared clients=4 mode=closed keys=1000 read_pct=90
+throughput=4007904 ops/s (measured_ops=16031616)
+## store=shared clients=16 keys=1000 rep=2
+store=shared clients=16 mode=closed keys=1000 read_pct=90
+throughput=3708192 ops/s (measured_ops=14832768)
+## store=shared clients=64 keys=1000 rep=2
+store=shared clients=64 mode=closed keys=1000 read_pct=90
+throughput=3398784 ops/s (measured_ops=13595136)
+## store=none clients=1 keys=1000 rep=3
+store=none clients=1 mode=closed keys=1000 read_pct=90
+throughput=17967744 ops/s (measured_ops=71870976)
+## store=mutex clients=1 keys=1000 rep=3
+store=mutex clients=1 mode=closed keys=1000 read_pct=90
+throughput=16277488 ops/s (measured_ops=65109952)
+## store=mutex clients=4 keys=1000 rep=3
+store=mutex clients=4 mode=closed keys=1000 read_pct=90
+throughput=4130512 ops/s (measured_ops=16522048)
+## store=mutex clients=16 keys=1000 rep=3
+store=mutex clients=16 mode=closed keys=1000 read_pct=90
+throughput=3202320 ops/s (measured_ops=12809280)
+## store=mutex clients=64 keys=1000 rep=3
+store=mutex clients=64 mode=closed keys=1000 read_pct=90
+throughput=3992736 ops/s (measured_ops=15970944)
+## store=shared clients=1 keys=1000 rep=3
+store=shared clients=1 mode=closed keys=1000 read_pct=90
+throughput=16098064 ops/s (measured_ops=64392256)
+## store=shared clients=4 keys=1000 rep=3
+store=shared clients=4 mode=closed keys=1000 read_pct=90
+throughput=3900432 ops/s (measured_ops=15601728)
+## store=shared clients=16 keys=1000 rep=3
+store=shared clients=16 mode=closed keys=1000 read_pct=90
+throughput=3410464 ops/s (measured_ops=13641856)
+## store=shared clients=64 keys=1000 rep=3
+store=shared clients=64 mode=closed keys=1000 read_pct=90
+throughput=3406720 ops/s (measured_ops=13626880)
+ 10:42:16 up  1:11,  1 user,  load average: 9.41, 4.56, 2.10

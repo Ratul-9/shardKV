@@ -1,0 +1,75 @@
+# commit=8942995 date=2026-11-04_10:42:16 reps=3
+ 10:42:16 up  1:11,  1 user,  load average: 9.41, 4.56, 2.10
+## store=none clients=1 rate=200000
+store=none clients=1 mode=open keys=1000000 read_pct=90
+offered=200000 achieved=200000 ops/s measured_ops=1200000
+latency ns: min=71 p50=363 p90=535 p99=847 p999=10623 max=18496 mean=430
+## store=mutex clients=1 rate=200000
+store=mutex clients=1 mode=open keys=1000000 read_pct=90
+offered=200000 achieved=200000 ops/s measured_ops=1200000
+latency ns: min=74 p50=363 p90=507 p99=959 p999=10495 max=147805 mean=422
+## store=mutex clients=4 rate=200000
+store=mutex clients=4 mode=open keys=1000000 read_pct=90
+offered=200000 achieved=200001 ops/s measured_ops=1200000
+latency ns: min=101 p50=999 p90=2719 p99=4351 p999=6271 max=258316 mean=1303
+## store=mutex clients=16 rate=200000
+store=mutex clients=16 mode=open keys=1000000 read_pct=90
+offered=200000 achieved=200002 ops/s measured_ops=1200000
+latency ns: min=205 p50=23807 p90=40447 p99=70655 p999=115711 max=1846114 mean=22804
+## store=mutex clients=64 rate=200000
+store=mutex clients=64 mode=open keys=1000000 read_pct=90
+offered=200000 achieved=200007 ops/s measured_ops=1200000
+latency ns: min=305 p50=14463 p90=47103 p99=84991 p999=184319 max=3456702 mean=20381
+## store=shared clients=1 rate=200000
+store=shared clients=1 mode=open keys=1000000 read_pct=90
+offered=200000 achieved=200000 ops/s measured_ops=1200000
+latency ns: min=77 p50=367 p90=503 p99=767 p999=6719 max=17739 mean=406
+## store=shared clients=4 rate=200000
+store=shared clients=4 mode=open keys=1000000 read_pct=90
+offered=200000 achieved=200001 ops/s measured_ops=1200000
+latency ns: min=95 p50=395 p90=543 p99=855 p999=2335 max=21221 mean=425
+## store=shared clients=16 rate=200000
+store=shared clients=16 mode=open keys=1000000 read_pct=90
+offered=200000 achieved=200002 ops/s measured_ops=1200000
+latency ns: min=296 p50=24063 p90=39423 p99=89087 p999=157695 max=2305886 mean=22586
+## store=shared clients=64 rate=200000
+store=shared clients=64 mode=open keys=1000000 read_pct=90
+offered=200000 achieved=200004 ops/s measured_ops=1200000
+latency ns: min=393 p50=36863 p90=98303 p99=167935 p999=679935 max=4293520 mean=47119
+## store=none clients=1 rate=2000000
+store=none clients=1 mode=open keys=1000000 read_pct=90
+offered=2000000 achieved=2000000 ops/s measured_ops=12000000
+latency ns: min=63 p50=355 p90=567 p99=4223 p999=13567 max=58990 mean=495
+## store=mutex clients=1 rate=2000000
+store=mutex clients=1 mode=open keys=1000000 read_pct=90
+offered=2000000 achieved=2000000 ops/s measured_ops=12000000
+latency ns: min=67 p50=363 p90=599 p99=11647 p999=356351 max=508608 mean=1579
+## store=mutex clients=4 rate=2000000
+store=mutex clients=4 mode=open keys=1000000 read_pct=90
+offered=2000000 achieved=1595488 ops/s measured_ops=12000000
+latency ns: min=190076807 p50=897581055 p90=1442840575 p99=1644167167 p999=1655877444 max=1655877444 mean=898763458
+## store=mutex clients=16 rate=2000000
+store=mutex clients=16 mode=open keys=1000000 read_pct=90
+offered=2000000 achieved=1472050 ops/s measured_ops=12000000
+latency ns: min=313673503 p50=1258291199 p90=1996488703 p99=2147483647 p999=2181038079 max=2185101489 mean=1245510041
+## store=mutex clients=64 rate=2000000
+store=mutex clients=64 mode=open keys=1000000 read_pct=90
+offered=2000000 achieved=1473986 ops/s measured_ops=12000000
+latency ns: min=298475371 p50=1258291199 p90=1979711487 p99=2181038079 p999=2214592511 max=2239412731 mean=1242070297
+## store=shared clients=1 rate=2000000
+store=shared clients=1 mode=open keys=1000000 read_pct=90
+offered=2000000 achieved=2000000 ops/s measured_ops=12000000
+latency ns: min=68 p50=363 p90=583 p99=3423 p999=44543 max=431622 mean=726
+## store=shared clients=4 rate=2000000
+store=shared clients=4 mode=open keys=1000000 read_pct=90
+offered=2000000 achieved=2000000 ops/s measured_ops=12000000
+latency ns: min=86 p50=10239 p90=630783 p99=5701631 p999=6553599 max=6934293 mean=322649
+## store=shared clients=16 rate=2000000
+store=shared clients=16 mode=open keys=1000000 read_pct=90
+offered=2000000 achieved=1298555 ops/s measured_ops=12000000
+latency ns: min=529577197 p50=2181038079 p90=3154116607 p99=3321888767 p999=3422552063 max=3435033500 mean=2022314782
+## store=shared clients=64 rate=2000000
+store=shared clients=64 mode=open keys=1000000 read_pct=90
+offered=2000000 achieved=1601497 ops/s measured_ops=12000000
+latency ns: min=65538949 p50=872415231 p90=1476395007 p99=1694498815 p999=1879048191 max=1944801107 mean=861805612
+ 10:44:42 up  1:14,  1 user,  load average: 3.51, 3.99, 2.24

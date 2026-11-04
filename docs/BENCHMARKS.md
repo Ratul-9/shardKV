@@ -148,6 +148,31 @@ Throughput in ops/s, median of 3 (min-max):
 - **Platform caveat for `shared_mutex`:** on this machine libc++'s `std::shared_mutex` is built from an internal `std::mutex` plus two condition variables (confirmed in the SDK header `shared_mutex`, lines 158-160), so every `lock_shared()` briefly takes that internal mutex. That is heavier than a bare reader-count update and makes the gap larger than it may be elsewhere. Do not generalise: re-measure on Linux with libstdc++ (which uses `pthread_rwlock`) before quoting the ratio.
 - **The plateau at 16 and 64 clients** is the machine saturated (10 cores): more threads than cores adds no throughput.
 
+### B-005 on Linux (added 2026-11-04): the shared_mutex result reverses
+
+- **Hardware:** Ubuntu desktop, i5-12400F (6 cores / 12 threads), GCC 11.4 + libstdc++ (D-011). **Commit:** `8942995`. **Command:** `export RESULTS_DIR=bench/results/linux; scripts/bench_inprocess.sh 3 closed`. Same tool, workload and durations as above (3 repetitions, median with min-max).
+- **Raw:** `bench/results/linux/phase2_inprocess_closed.txt`. Load average at the start: 0.12 (quiet). Not recorded: CPU frequency governor, turbo state, SMT sibling mapping. No core pinning.
+
+| 1,000,000 keys | 1 client | 4 clients | 16 clients | 64 clients |
+|---|---|---|---|---|
+| `none` (no lock, 1 thread) | 3.03M (2.89-3.04) | | | |
+| `MutexStore` | 2.99M (2.96-3.00) | 1.68M (1.68-1.69) | 1.53M (1.52-1.56) | 1.54M (1.47-1.55) |
+| `SharedMutexStore` | 2.98M (2.97-2.99) | 2.09M (2.08-2.11) | 2.02M (2.01-2.04) | 2.04M (2.03-2.06) |
+
+| 1,000 keys | 1 client | 4 clients | 16 clients | 64 clients |
+|---|---|---|---|---|
+| `none` (no lock, 1 thread) | 17.81M (17.74-17.97) | | | |
+| `MutexStore` | 16.68M (16.28-16.87) | 4.04M (4.03-4.13) | 3.26M (3.20-3.91) | 4.00M (3.99-4.01) |
+| `SharedMutexStore` | 16.19M (16.10-16.28) | 4.01M (3.90-4.15) | 3.41M (3.35-3.71) | 3.40M (3.35-3.41) |
+
+**Interpretation (Linux)**
+- **At 1M keys `SharedMutexStore` beats `MutexStore` under contention:** 1.24x at 4 clients, 1.32x at 16 and 64. The min-max ranges do not overlap in any of those cells, so the difference is real for this machine. With one client the two are equal (2.98M vs 2.99M).
+- **At 1K keys there is no clear winner:** equal at 4 clients (4.01M vs 4.04M), ranges overlap at 16 clients (the mutex range 3.20-3.91 contains the shared median 3.41), and `MutexStore` wins at 64 (4.00M vs 3.40M, 15% ahead). Shared's advantage appears only with the large table, where each lookup is longer (cache misses). That fits the idea that reader parallelism pays only when the critical section is long enough, but it was not tested directly (no `perf` counters yet).
+- **Uncontended lock cost is much smaller than on the Mac:** at 1M keys `MutexStore` is 1% below `none` (2.99M vs 3.03M, within the ranges); at 1K keys it is 6% below and shared is 9% below. On the Mac shared was 35% below `none` at 1M keys.
+- **Neither lock scales:** from 1 to 4 clients `MutexStore` loses 44% at 1M keys (2.99M to 1.68M) and `SharedMutexStore` loses 30% (2.98M to 2.09M); at 1K keys both lose about 75%. The 16 and 64 client rows are oversubscribed (12 hardware threads); 4 clients is not.
+- **Conclusion for the project:** the "shared_mutex is slower" finding above is specific to libc++ on macOS (its `shared_mutex` is built from a mutex plus two condition variables, see the platform caveat). It must not be quoted as a general result. On Linux/libstdc++ the order at 1M keys is the opposite. Why libstdc++'s lock is cheaper here is **undiagnosed**: the glibc `pthread_rwlock` implementation has not been read and no counters were taken.
+- **Comparing machines:** only ratios and orderings are comparable. The Mac is faster single-threaded (4.78M vs 2.99M for `MutexStore` at 1M keys), and the Mac runs were at load 2.2 on a different commit (`3de99c5`).
+
 ---
 
 ## B-006: Phase 2, in-process lock contention, open loop (latency at a fixed offered rate)
@@ -183,6 +208,38 @@ At 2,000,000 ops/s offered (more than the store can sustain with 4 or more clien
 - **p999 and max in the milliseconds at 4 clients are identical for both stores** (about 0.72 ms, 4.6-9 ms), so they are operating-system scheduling noise on this machine, not lock behaviour. Single runs: do not read differences of a few tens of percent in tails.
 - **The 2M ops/s rows are overload tests, not tail latencies.** Offered load exceeds capacity, so a backlog grows for the whole window and open-loop latency (charged from the intended time) reaches seconds. Their useful content is the achieved rate: it matches B-005's ordering (`SharedMutexStore` collapses to 0.29M at 64 clients).
 - **The sleep fix removed a harness artifact:** at 16 clients, `MutexStore` p99 was 20.7 ms before the fix and is 26 us after.
+
+### B-006 on Linux (added 2026-11-04)
+
+- **Hardware and commit:** as in B-005 on Linux (i5-12400F, GCC 11.4, `8942995`). **Command:** `export RESULTS_DIR=bench/results/linux; scripts/bench_inprocess.sh 3 open`. **Single run per cell:** the open-loop runner ignores the repetition count, so the `reps=3` in the file header is only the script argument. **Raw:** `bench/results/linux/phase2_inprocess_open.txt`.
+- **Load:** the file header shows load average 9.41 at the start. It is the trailing average left by the closed-loop run that finished a minute earlier, so it is most likely the benchmark's own load, not background activity; this was not confirmed. 3.51 at the end. Governor, turbo and pinning not recorded.
+
+At 200,000 ops/s offered (every cell achieved 200,000):
+
+| Store | Clients | p50 | p99 | p999 | max |
+|---|---|---|---|---|---|
+| `none` | 1 | 363 ns | 847 ns | 10.6 us | 18.5 us |
+| `MutexStore` | 1 | 363 ns | 959 ns | 10.5 us | 148 us |
+| `SharedMutexStore` | 1 | 367 ns | 767 ns | 6.7 us | 17.7 us |
+| `MutexStore` | 4 | 999 ns | 4.4 us | 6.3 us | 258 us |
+| `SharedMutexStore` | 4 | 395 ns | 855 ns | 2.3 us | 21.2 us |
+| `MutexStore` | 16 | 23.8 us | 70.7 us | 116 us | 1.85 ms |
+| `SharedMutexStore` | 16 | 24.1 us | 89.1 us | 158 us | 2.31 ms |
+| `MutexStore` | 64 | 14.5 us | 85.0 us | 184 us | 3.46 ms |
+| `SharedMutexStore` | 64 | 36.9 us | 168 us | 680 us | 4.29 ms |
+
+At 2,000,000 ops/s offered (overload for the mutex store from 4 clients up):
+
+| Store | Clients | achieved ops/s | p50 |
+|---|---|---|---|
+| `MutexStore` | 4 / 16 / 64 | 1.60M / 1.47M / 1.47M | 0.90 s / 1.26 s / 1.26 s |
+| `SharedMutexStore` | 4 / 16 / 64 | 2.00M / 1.30M / 1.60M | 10.2 us / 2.18 s / 0.87 s |
+
+**Interpretation (Linux)**
+- **The tails are far better than on the Mac.** At 64 clients `SharedMutexStore` has p99 168 us on Linux vs 4.78 ms on the Mac, and p999 680 us vs 10.2 ms. At 4 clients p999 is 2.3-6.3 us vs about 720 us on the Mac, so the Mac's 4-client tail was mostly OS scheduling noise, as B-006 already suspected.
+- **At 4 clients `SharedMutexStore` looks better than `MutexStore`** (p50 395 ns vs 999 ns, p99 855 ns vs 4.4 us, p999 2.3 us vs 6.3 us). Single run, so treat it as consistent with the closed-loop result (B-005 on Linux), not as separate proof. At 16 and 64 clients the stores are within a factor of about 2 of each other with no consistent winner, and `MutexStore` has the better p999 at 64.
+- **p50 of 24 us at 16 clients (both stores) is far above the Mac's 0.5 us.** Because the two stores match, the lock is not the cause. Wake-up lateness of sparse load-generator threads (B-010 measured 90 us p50 at 64 clients on the Mac) is a plausible reason, but it was not measured on Linux, so this is **undiagnosed**.
+- **Overload row at 4 clients:** `SharedMutexStore` kept up with 2.0M offered (p50 10.2 us, p99 5.7 ms) while `MutexStore` fell behind at 1.60M. This matches closed-loop capacity on Linux (2.09M vs 1.68M). At 16 and 64 clients both are overloaded and the achieved rates are close; backlog latencies in seconds only show the ordering.
 
 ---
 
@@ -273,7 +330,7 @@ Throughput in ops/s, median of 3 (min-max):
 ---
 
 ## Not yet measured / known limits
-- No Linux or x86 results yet (needed from Phase 3 for pinning and `perf`). The `shared_mutex` ratio in B-005 is specific to libc++ on macOS and must be re-measured on Linux before it is quoted.
+- In-process closed and open loop are now measured on Linux (B-005 and B-006 Linux subsections, 2026-11-04) and the `shared_mutex` result reverses there. Still missing on Linux: the gRPC runs (the Ubuntu gRPC 1.30 is too old for the callback API), `perf` counters, the CPU governor/turbo state, the SMT sibling map and core pinning. Why libstdc++'s `shared_mutex` is cheaper than libc++'s here is undiagnosed.
 - gRPC open-loop latency with 4 or more clients grows with the client count for an undiagnosed reason (B-008, B-010). Client and server share one machine and one set of cores; a separate client machine is needed for clean multi-client latency.
 - The gRPC server uses gRPC's default internal threading plus our pool; neither the gRPC thread count nor the pool size was tuned (pool fixed at 8).
 - The `string_view` temporary-`std::string` lookup cost (see `DESIGN.md` D-003) has not been measured against a transparent-hash variant.
