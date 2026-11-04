@@ -66,7 +66,9 @@ class LatencyHistogram {
   // keep its 7 leading bits (64..127) and use how far we shifted to pick the power-of-two range.
   static constexpr size_t IndexOf(uint64_t v) {
     if (v < kSubBucketCount) return static_cast<size_t>(v);
-    const int msb = std::bit_width(v) - 1;
+    // std::bit_width returns int in the standard but an unsigned type in GCC 11's library, so cast
+    // explicitly: -Wconversion -Werror rejects the implicit narrowing there.
+    const int msb = static_cast<int>(std::bit_width(v)) - 1;
     const int shift = msb - (kSubBucketBits - 1);
     return static_cast<size_t>(kSubBucketCount + static_cast<uint64_t>(shift - 1) * kHalfCount +
                                ((v >> shift) - kHalfCount));
