@@ -152,7 +152,7 @@ Use the same `--keys` on server and client. A run that prints `rpc_errors` above
 | gRPC, closed loop only / open loop only | `scripts/bench_grpc.sh 3 closed` / `scripts/bench_grpc.sh 1 open` |
 | Print median tables from all result files | `python3 scripts/summarize_results.py` |
 
-The scripts start and stop the server themselves, write to `bench/results/phase2_*.txt` (overwriting), and put the commit hash and machine load in each file's header. Build the release preset first. Close other apps, plug in the charger, and check `uptime` before starting; the matrices use every core, so the Mac will get warm.
+The scripts start and stop the server themselves, write to `bench/results/phase2_*.txt` (overwriting; set `RESULTS_DIR=bench/results/linux` first to keep another machine's results separate, and pass the same folder to `python3 scripts/summarize_results.py bench/results/linux`), and put the commit hash and machine load in each file's header. Build the release preset first. Close other apps, plug in the charger, and check `uptime` before starting; the matrices use every core, so the Mac will get warm.
 
 ---
 

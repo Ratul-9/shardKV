@@ -6,7 +6,8 @@ set -u
 BIN=build/release/bench/contention
 REPS=${1:-3}
 MODE=${2:-all}
-OUT=bench/results
+OUT=${RESULTS_DIR:-bench/results}   # set RESULTS_DIR=bench/results/linux to keep other machines apart
+mkdir -p "$OUT"
 [ -x "$BIN" ] || { echo "build first: cmake --build --preset release"; exit 1; }
 header() { { echo "# commit=$(git rev-parse --short HEAD) date=$(date +%F_%T) reps=$REPS"; uptime; } > "$1"; }
 

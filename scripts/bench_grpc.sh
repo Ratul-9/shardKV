@@ -8,7 +8,8 @@ CLIENT=build/release/bench/kv_client
 REPS=${1:-3}
 MODE=${2:-all}
 PORT=50321
-OUT=bench/results
+OUT=${RESULTS_DIR:-bench/results}   # set RESULTS_DIR=bench/results/linux to keep other machines apart
+mkdir -p "$OUT"
 [ -x "$SERVER" ] && [ -x "$CLIENT" ] || { echo "build first: cmake --build --preset release"; exit 1; }
 header() { { echo "# commit=$(git rev-parse --short HEAD) date=$(date +%F_%T) reps=$REPS"; uptime; } > "$1"; }
 CF=$OUT/phase2_grpc_closed.txt; OF=$OUT/phase2_grpc_open.txt
