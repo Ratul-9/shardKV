@@ -162,6 +162,23 @@ Decision log and trade-offs. Each entry: what we chose, what we rejected, and wh
 
 ---
 
+## D-011: Linux development machine (2026-11-04)
+
+**Machine:** Intel Core i5-12400F (6 cores, 12 hardware threads, no efficiency cores), 1 socket, 1 NUMA node, L1d 48 KiB and L2 1.25 MiB per core, L3 18 MiB shared, 15 GiB RAM, bare metal (`systemd-detect-virt` = none). Ubuntu 22.04.5, kernel 6.8.0-138, GCC 11.4 with libstdc++.
+
+**Why it matters:** this resolves D-001's open item. Thread pinning, `perf` and NUMA tools work here, and a homogeneous 6-core CPU gives far more repeatable pinned results than the heterogeneous Mac. It is a different ISA (x86-64, TSO memory model) from the Mac (arm64, weak ordering), so lock-free code from Phase 4 gets tested on both.
+
+**Setup problems met and their fixes** (all recorded in `CLAUDE.md`):
+- Ubuntu 22.04's CMake 3.22 cannot read our presets (needs 3.25): installed a newer CMake.
+- GCC 11 rejected `std::bit_width` narrowing and a `-Wdangling-else` in a gtest `if`: fixed in the source (commits `288ba08`, `773d9dc`).
+- TSan binaries crashed at start-up: kernel 6.8 randomises mappings over a range GCC 11's libtsan does not support; `sudo sysctl vm.mmap_rnd_bits=28` fixes it. This slightly lowers address-space randomisation (acceptable on a development machine).
+- gRPC 1.30 from apt is too old for the callback API, so the gRPC server and client are skipped here.
+- ASan on Linux includes leak checking: all 42 tests pass, no leaks.
+
+**Not yet verified on this machine:** whether `perf` hardware counters work, the SMT sibling layout (`lscpu -e`), and any benchmark results.
+
+---
+
 ## Open questions
 
 - Apple clang is 21.0.0. Whether `std::hardware_destructive_interference_size` is available is still to verify in Phase 5.

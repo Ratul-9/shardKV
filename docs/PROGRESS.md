@@ -36,6 +36,7 @@
 - Server design (callback API plus ThreadPool) was chosen by Claude because the sync-vs-callback question was not answered; revisit if Ratul prefers the other.
 - gRPC open-loop latency with 4+ clients grows with the client count for an undiagnosed reason (B-008, B-010). Needs a separate client machine and Linux.
 - `shared_mutex` result (B-005) is for libc++ on macOS; re-measure on Linux.
+- Linux machine set up (D-011): 42 of 42 tests pass in debug, ASan (with leak checking), UBSan and TSan (after the sysctl fix). Still to do there: confirm `perf` counters, map SMT siblings, re-run the Phase 2 matrices into `bench/results/linux`.
 - All numbers are from a Mac that was running other processes, with thermal state unrecorded; no core pinning on macOS. Re-measure on Linux before Phase 3 comparisons.
 - `` CS:APP page numbers in `docs/LEARNING_NOTES.md` still blank (Ratul to fill, or drop them).
 - Randomised store test only uses keys up to 3 characters (blind spot found by mutation M4).
