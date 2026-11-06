@@ -5,7 +5,8 @@
 | 0 Foundations and measurement | Done | `phase-0-done` |
 | 1 Single-threaded baseline | Done (drill: 3 of 5 answered) | `phase-1-done` |
 | 2 Naive concurrent server (mutex baseline) | Done (code, tests, measurements); drill model answers written by Claude, not graded | `phase-2-done` |
-| 3-11 | Not started | |
+| 3 Sharding and thread-per-core | In progress, Ratul writes it; task list in `docs/PHASE3_TASKS.md` | |
+| 4-11 | Not started | |
 
 ## Phase 0 contents
 - CMake + presets: `debug`, `release`, `asan`, `ubsan`, `tsan` (`cmake --preset X && cmake --build --preset X && ctest --preset X`)
