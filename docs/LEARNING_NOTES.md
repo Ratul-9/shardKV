@@ -189,3 +189,64 @@ Tooling lessons:
 - Drill questions and grades: `docs/INTERVIEW_NOTES.md` (Phase 2 pre-check, Phase 2 drill)
 
 **End of Phase 2** (tag `phase-2-done`; the Phase 2 drill and earlier retries carried into Phase 3)
+
+---
+
+## Phase 3: Sharding and thread-per-core  (IN PROGRESS: implemented and compiled, not yet run)
+
+### Topics Studied
+- Partitioning by hash (`hash(key) % N`), skew and hot keys, and why consistent or rendezvous (highest-random-weight) hashing only pays off when N changes. *Designing Data-Intensive Applications* ch. 6; not in CS:APP.
+- Shared-nothing and thread-per-core designs: each shard owned by one thread, message passing between threads. Seastar design notes (shared-nothing); not in CS:APP. Shared-variable background: CS:APP §12.4.
+- Why `std::hash` must not be used for routing across platforms (differs between libstdc++ and libc++); FNV-1a and the splitmix64 finalizer (Fowler-Noll-Vo; Vigna). Not in CS:APP.
+- Bounded producer-consumer queues, backpressure, two condition variables, draining shutdown. CS:APP §12.5.4 (producer-consumer, with semaphores); *C++ Concurrency in Action* §4.1.2.
+- Request/reply between threads without allocation: a stack object plus a mutex and condition variable; why `notify` is done while holding the lock (object lifetime). *C++ Concurrency in Action* ch. 4.
+- CPU affinity on Linux: `pthread_setaffinity_np(3)`, `sched_getcpu(3)`, `sched_getaffinity(2)`, `taskset(1)`, `lscpu -e` (SMT siblings share a CORE number). Linux man pages; not in CS:APP. Context-switch cost: CS:APP §8.2.5.
+- False sharing and cache-line alignment (`alignas(64)`); GCC 11 lacks `std::hardware_destructive_interference_size`. CS:APP §6.4-6.5; Drepper §6.4.
+- Verifying code you cannot run: compile under several sanitizer presets, and syntax-check a platform branch against a stand-in header.
+
+### What you have shown you know
+- **[Knew]** Asked the right design questions before coding: which sharding scheme (hash vs consistent vs range), whether highest-random-weight hashing helps (it does not for a fixed N), and the difference between shards (threads in one process) and nodes (processes in a cluster, Phase 8).
+- **[Knew]** Phase 3 is shared-nothing for the data only; the queues and replies are still shared (you confirmed the right phrase: "shared-nothing shards with message passing").
+- **[To do]** Read and defend the Phase 3 code (written by Claude): see the model answers in `docs/INTERVIEW_NOTES.md`.
+
+### Key Insights
+- **Shared-nothing moves the cost, it does not remove it.** The data needs no lock, but every request now crosses a thread boundary through a queue: a lock, a wake-up and a context switch each way. Whether that is cheaper than lock contention is exactly what the Phase 3 benchmark must answer; it is a prediction until measured (B-011 is planned, not run).
+- **Route with a function you control.** `std::hash` differs between standard libraries, so the same key would land on different shards on the Mac and the Linux machine. FNV-1a plus a finalizer is fixed code, and unit tests pin known hash values and shard numbers so it can never change silently. The expected load imbalance is about 2% (computed independently).
+- **Backpressure is a design decision.** A bounded queue that blocks producers turns overload into waiting instead of unbounded memory and latency. The alternatives (drop, reject, grow) each push a decision onto callers.
+- **Object lifetime across threads.** The request lives on the caller's stack, which is safe only because the caller blocks until the worker is done; and the worker must notify while holding the lock, or the caller could destroy the condition variable before the notify runs.
+- **The queue is the replaceable part.** Keeping it a small generic class (`Push`, `Pop`, `Stop`) means Phase 4 can swap in a lock-free queue behind the same interface and the before/after benchmark is a clean comparison.
+- **Pin from inside the thread** being pinned, and report the result (`PinnedCpus()`); a pin that silently failed would make a benchmark meaningless.
+- **Honest verification limits.** The code compiled under five presets with Apple clang, but never ran, never saw GCC 11, and the Linux branch was checked only against a stand-in header. A clean compile is evidence of syntax and types, not of correctness.
+- **Design decisions:** D-012 shard count and routing hash, D-013 queue, D-014 reply path, D-015 pinning, D-016 semantics, D-017 test strategy and status.
+
+### Mistakes & Fixes
+First draft of `shardedStore.h` (Ratul's), found in review:
+- `Size()` called itself (infinite recursion) -> sum the per-shard sizes.
+- `Get`, `Delete` and `Size` had empty bodies but return values (undefined behaviour) -> they must return a value on every path.
+- `Put` and `Delete` were `const` although they modify data -> not `const`.
+- `shardIndex(int key)` took an `int` although keys are strings, so `key % R` cannot work -> hash the `string_view` first.
+- The constructor created a local `Store s;` and discarded it, so there were no shards -> shards must be members created in the constructor.
+- `#define R 6` leaked into every includer and hard-coded the shard count -> a runtime option.
+- `Get` returned a `string_view` into data another thread can change -> copy into the caller's string (D-002).
+- No deleted copy operations and no destructor, although the class owns threads -> delete copying, stop and join in the destructor.
+- File name `shardedStore.h` broke the snake_case convention -> `sharded_store.h`.
+
+By Claude while writing Phase 3:
+- A comment on `BoundedQueue::Push` was garbled -> rewritten.
+- A parameter named like a member function (`num_shards`) could trigger GCC's stricter `-Wshadow` -> renamed `shard_count`.
+- Cannot run tests or see GCC here -> compile in five presets, syntax-check the Linux branch with a stand-in header, and say plainly that nothing has run.
+
+Tooling: Docker was installed but its daemon was not running, so a GCC 11 container could not be used to pre-check the code.
+
+### Code References
+- Hash and routing: `include/lldstore/sharded_store.h` `ShardFor` line 140, `HashKey` line 149
+- Request and reply: `Request` line 180, `Complete` line 197, `Dispatch` line 276
+- Shard, worker loop, pinning: `Shard` line 213, `Run` line 220, `Execute` line 228, `PinCurrentThread` line 249
+- Public interface: constructor line 56, destructor line 73, `Put`/`Get`/`Delete`/`Size` lines 83-112, `PinnedCpus` line 165
+- Bounded queue: `include/lldstore/bounded_queue.h` `Push` line 38, `Pop` line 54, `Stop` line 68
+- Tests: `tests/bounded_queue_test.cpp`, `tests/sharded_store_test.cpp`
+- Benchmark harness: `bench/contention.cpp` (`--store=sharded`), `scripts/bench_sharded.sh`
+- Decisions: `docs/DESIGN.md` D-012 to D-017; task list: `docs/PHASE3_TASKS.md`; planned measurements: `docs/BENCHMARKS.md` B-011
+- Drill: `docs/INTERVIEW_NOTES.md` (Phase 3 drill, model answers)
+
+(Phase 3 section is closed with "End of Phase 3" only after the tests and benchmarks have run and the phase is tagged.)

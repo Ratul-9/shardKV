@@ -79,3 +79,20 @@ CS:APP = Bryant & O'Hallaron, *Computer Systems: A Programmer's Perspective*, 3r
 - libc++ `std::shared_mutex` built from a mutex and condition variables (heavier than a reader counter) — the SDK header `shared_mutex`; not in CS:APP
 - Scripted benchmarking and reproducibility (command, hardware, commit hash, load average) — see `docs/BENCHMARKS.md`; not in CS:APP
 - Build and run only what the machine supports (macOS: no core pinning, no `perf`) — Linux man pages `sched_setaffinity(2)`, `perf(1)`; not in CS:APP
+
+## Phase 3: Sharding and thread-per-core
+
+- Partitioning by hash, skew, hot keys — *Designing Data-Intensive Applications* (Kleppmann), ch. 6; not in CS:APP
+- Consistent hashing and rendezvous (highest random weight) hashing, and why they matter only when the shard count changes — Karger et al. 1997 (consistent hashing); Thaler and Ravishankar 1998 (rendezvous hashing); not in CS:APP
+- Shared-nothing, thread-per-core design and message passing between cores — Seastar documentation (shared-nothing design); not in CS:APP
+- Why `std::hash` differs between standard libraries (libstdc++ vs libc++) — the standard library sources; cppreference `std::hash`
+- FNV-1a hash and the splitmix64 finalizer — Fowler-Noll-Vo hash (isthe.com/chongo/tech/comp/fnv); Vigna, splitmix64; not in CS:APP
+- Bounded producer-consumer queue and backpressure — CS:APP §12.5.4; *C++ Concurrency in Action* §4.1.2
+- Two condition variables for "not full" and "not empty", draining shutdown — *C++ Concurrency in Action* ch. 4; see `docs/DESIGN.md` D-013
+- A stack-allocated request/reply and notifying while holding the lock (object lifetime across threads) — *C++ Concurrency in Action* ch. 4; see `docs/DESIGN.md` D-014
+- Context-switch cost of a cross-thread hand-off — CS:APP §8.2.5
+- Cache lines, false sharing and `alignas(64)` — CS:APP §6.4-6.5; Drepper §6.4; `std::hardware_destructive_interference_size` (GCC 12 and later, absent in GCC 11)
+- CPU affinity and pinning on Linux — Linux man pages `pthread_setaffinity_np(3)`, `sched_setaffinity(2)`, `sched_getcpu(3)`, `taskset(1)`; not in CS:APP
+- Physical cores vs SMT siblings and reading the CPU topology — `lscpu(1)` (`lscpu -e`); not in CS:APP
+- Shards (threads in one process) vs nodes (processes in a cluster, Phase 8) — *Designing Data-Intensive Applications* ch. 5-6
+- Checking code you cannot run: strict warnings, five sanitizer presets, stand-in headers for a platform branch — Clang and GCC warning documentation; not in CS:APP

@@ -144,3 +144,46 @@
 - Phase 2 drill: model answers are above (written by Claude, not graded); optionally answer in your own words and ask for grading.
 - Earlier re-answers (p99 tail amplification, coordinated omission cause, sleep-then-spin, cache-miss count, `string_view` invalidation) are self-reported and ungraded.
 - Update to the Phase 0 Q5 model answer: the 100 us spin margin was measured and found wrong on macOS (sleep overshoot is proportional to the sleep length); see D-010.
+
+---
+
+## Phase 3 drill: model answers
+
+**Authorship note:** the Phase 3 code and these answers were written by Claude at Ratul's request. They are NOT Ratul's own answers and are not graded. No Phase 3 measurement exists yet, so every statement about performance below is a prediction, marked as such.
+
+**Q1. What does "shared-nothing" mean in `ShardedStore`, and what is still shared?**
+
+Each shard owns a `Store` that only its own worker thread ever touches, so reading and writing the data needs no lock and no atomic. Ownership replaces locking: if only one thread can touch the data, there is nothing to protect.
+
+What is still shared: (1) the queue in front of each shard, since any caller thread pushes into it and the worker pops, so it has a mutex and condition variables; (2) the reply hand-back, a mutex and condition variable per request; (3) the router (hash and shard table), which is read-only after construction and so needs no lock. The accurate phrase is "shared-nothing shards with message passing between threads". The consequence: a request for a key owned by another shard must be handed over by message, which costs a lock, a wake-up and a context switch; and nothing spanning two shards can be atomic without extra machinery.
+
+**Q2. Why a fixed hash plus modulo, not `std::hash`, consistent hashing, or rendezvous hashing?**
+
+`std::hash<std::string_view>` gives different results in libstdc++ and libc++, so the same key would reach different shards on the Mac and the Linux machine. A fixed function (FNV-1a over the bytes, then the splitmix64 finalizer) is identical everywhere, and unit tests pin known hash values. The finalizer matters because `% N` uses the low bits and FNV mixes those poorly.
+
+Consistent hashing and rendezvous (highest random weight) hashing exist to limit how many keys move when the shard count changes: about 1/N instead of nearly all of them. Our N never changes while a store is running, so the benefit cannot appear, and rendezvous hashing would compute N hashes per request instead of one. They become relevant in Phase 8, when cluster members can join or leave. Range sharding needs an ordered key space and creates hot ranges. A bit mask instead of `%` would restrict N to powers of two, which the 1-to-6 sweep forbids. Expected load imbalance, computed independently on 100,000 keys, is about 2%.
+
+**Q3. Why does the request live on the caller's stack, and why does `Complete()` notify while holding the lock?**
+
+The caller blocks until the worker has finished, so a stack `Request` is guaranteed to outlive the worker's use of it, along with the key and value views and the output-string pointer inside it. That avoids a heap allocation per request (which `std::promise`/`std::future` would need) and avoids copying the key and value into the queue.
+
+The same property creates a trap: the moment the worker sets `done_` and releases the mutex, the caller may wake, return from `Wait()`, and destroy the `Request`, including its condition variable. If the worker then called `notify_one`, it would signal a destroyed object. Notifying while still holding the lock prevents it, because the caller cannot finish `Wait()` until the worker releases the mutex, which happens after the notify. The result writes (`ok`, `size`, the copied value) are ordered before the caller's reads by the mutex, so no extra atomics are needed.
+
+**Q4. Why a bounded queue with blocking `Push` and two condition variables? What happens with a hot key?**
+
+A bounded queue gives backpressure: if a shard falls behind, producers wait instead of the queue growing without limit and latency and memory exploding. Rejecting or dropping needs retry logic in every caller; an unbounded queue hides overload. Two condition variables (`not_full_`, `not_empty_`) let each notify wake the right kind of waiter: a producer freed by a pop, a consumer woken by a push. With one, every notify would have to wake everyone, or might wake a waiter that cannot proceed. `Stop()` makes consumers drain what is queued, then exit, so no accepted request is lost.
+
+A hot key sends most traffic to one shard, so that shard's queue fills and its worker is the bottleneck however many shards exist; the other cores idle. Because `Push` blocks, callers using that key slow down, and callers using other keys can also be held up if they are stuck behind it on the same threads. Mitigations (not built): detect and cache the hot key, split it, or replicate for reads.
+
+**Q5. What do you expect the scaling curve to look like, why one pinned thread per physical core, and what would make you distrust the benchmark? (predictions only)**
+
+Prediction, to be tested: one shard is slower than the plain mutex store at one client, because every operation pays the hand-off. Throughput should then rise with shards until the client threads and shard threads together exhaust the cores, and flatten or fall near 6 shards because clients and shards share the same 6 cores / 12 hardware threads. Whether the sharded store beats the mutex store at 64 clients depends on whether the hand-off costs less than the contention it removes; that is the open question.
+
+One shard per physical core avoids two shards sharing a core's execution units through SMT, and pinning stops the scheduler moving a shard and discarding its warm caches. `lscpu -e` shows which CPU numbers are siblings (same CORE value). I would distrust the benchmark if: a shard reported `-1` (not pinned), the machine was not quiet (`uptime`), turbo or the frequency governor changed between runs, client threads and shards were oversubscribed without recording the client count, the spread between repetitions was large, or the tests had not passed under TSan first.
+
+---
+
+## Still owed (carry forward)
+- Phase 3 drill: model answers above (Claude's, not graded); answer in your own words when ready.
+- Phase 1 drill Q4 and Q5, and the Phase 2 pre-check Q1 and Q2: retry in your own words.
+- Earlier re-answers are self-reported and ungraded.

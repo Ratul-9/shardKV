@@ -329,6 +329,20 @@ Throughput in ops/s, median of 3 (min-max):
 
 ---
 
+## B-011 (PLANNED, not measured): Phase 3 sharded store vs the Phase 2 mutex baseline, Linux
+
+- **Not run.** The harness exists (`scripts/bench_sharded.sh`, `bench/contention.cpp --store=sharded`); no Phase 3 number has been measured. Nothing below is a result.
+- **Machine:** the Ubuntu desktop (D-011), release preset, GCC 11. The Mac cannot pin threads, so Phase 3 numbers come from Linux only.
+- **Plan:** closed-loop throughput for `none`, `mutex` and `sharded` with 1 to 6 shards and 1, 4, 12 and 64 clients (3 repetitions, median and range), plus open-loop latency at 50,000 and 200,000 ops/s offered. Shards pinned one per physical core via `PIN_CPUS`; the client threads are not pinned. Record `uptime`, commit hash, governor/turbo state and the pin list with every file.
+- **Hypotheses to confirm or refute (each is a prediction, not a finding):**
+  1. A 1-shard store is slower than `MutexStore` at 1 client, because every operation pays a queue hand-off and two context switches.
+  2. Throughput rises with the shard count at first, then flattens or falls before 6 shards, because the client threads share the same cores and every request still pays the hand-off.
+  3. At 64 clients the sharded store beats the mutex store only if the hand-off cost is smaller than the contention it removes; the answer is not known in advance.
+  4. Pinning matters less than expected at low load and more when clients and shards compete.
+  5. Shard load imbalance is about 2% (computed from the hash, D-012); throughput differences between shards should therefore be small.
+
+---
+
 ## Not yet measured / known limits
 - In-process closed and open loop are now measured on Linux (B-005 and B-006 Linux subsections, 2026-11-04) and the `shared_mutex` result reverses there. Still missing on Linux: the gRPC runs (the Ubuntu gRPC 1.30 is too old for the callback API), `perf` counters, the CPU governor/turbo state, the SMT sibling map and core pinning. Why libstdc++'s `shared_mutex` is cheaper than libc++'s here is undiagnosed.
 - gRPC open-loop latency with 4 or more clients grows with the client count for an undiagnosed reason (B-008, B-010). Client and server share one machine and one set of cores; a separate client machine is needed for clean multi-client latency.

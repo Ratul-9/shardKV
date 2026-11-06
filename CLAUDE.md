@@ -31,4 +31,4 @@ Linux notes:
 - Pull before starting work and push when done, because the Mac and Ubuntu share the GitHub repo.
 
 ## Quick commands
-`cmake --preset debug && cmake --build --preset debug -j$(nproc) && ctest --preset debug` (also presets `release`, `asan`, `ubsan`, `tsan`). All 42 tests pass in all four non-release presets on both machines.
+`cmake --preset debug && cmake --build --preset debug -j$(nproc) && ctest --preset debug` (also presets `release`, `asan`, `ubsan`, `tsan`). At the end of Phase 2, 42 tests passed in all four non-release presets on both machines. Phase 3 added 26 tests (8 `BoundedQueue`, 18 `ShardedStore`) that have been compiled but NOT run yet; the first thing to do on the Ubuntu machine is run them (see `docs/PHASE3_TASKS.md`).

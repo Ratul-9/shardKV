@@ -5,7 +5,7 @@
 | 0 Foundations and measurement | Done | `phase-0-done` |
 | 1 Single-threaded baseline | Done (drill: 3 of 5 answered) | `phase-1-done` |
 | 2 Naive concurrent server (mutex baseline) | Done (code, tests, measurements); drill model answers written by Claude, not graded | `phase-2-done` |
-| 3 Sharding and thread-per-core | In progress, Ratul writes it; task list in `docs/PHASE3_TASKS.md` | |
+| 3 Sharding and thread-per-core | Implemented and compiled (written by Claude at Ratul's request); **tests and benchmarks NOT run yet**; task list `docs/PHASE3_TASKS.md` | |
 | 4-11 | Not started | |
 
 ## Phase 0 contents
@@ -31,7 +31,17 @@
 - Results: `docs/BENCHMARKS.md` B-005 to B-010, raw files in `bench/results/phase2_*`
 - 42 tests pass under debug, ASan, UBSan, TSan
 
+## Phase 3 contents (compiled, not run)
+- `include/lldstore/bounded_queue.h`: generic bounded queue (one mutex, two condition variables, draining stop), D-013
+- `include/lldstore/sharded_store.h`: N shards, one pinned worker thread each, hash routing, stack-allocated request/reply, D-012 to D-016
+- `tests/bounded_queue_test.cpp` (8 tests), `tests/sharded_store_test.cpp` (18 tests): D-017
+- `bench/contention.cpp` extended (`--store=sharded --shards --pin`, parallel prefill); `scripts/bench_sharded.sh`
+- All written by Claude at Ratul's request; Ratul's draft was replaced after review
+- Compile-checked on the Mac: debug, release, asan, ubsan, tsan with Apple clang; the Linux-only branch only against a stand-in header. **Never compiled with GCC 11; no test has been run.**
+
 ## Open issues
+- **Phase 3 tests and benchmarks have not been run.** First action on the Ubuntu machine: `git pull`, build and run all four presets, then `scripts/bench_sharded.sh`. Expect to find and fix GCC and test problems.
+- **Phase 3 was written by Claude, not Ratul** ([HAND-WRITE] items: shard routing and worker loop). Ratul should read it until he can defend it; drill answers are in `docs/INTERVIEW_NOTES.md` (not Ratul's own, not graded).
 - **Phase 2 drill: model answers written by Claude at Ratul's request, not Ratul's own and not graded** (`docs/INTERVIEW_NOTES.md`). Also owed: Phase 1 Q4 and Q5, Phase 2 pre-check Q1 and Q2 in Ratul's own words. Earlier re-answers are self-reported and ungraded.
 - **ThreadPool, locked stores and their design choices (D-007, D-008, D-009) were written by Claude, not Ratul.** They are [HAND-WRITE] items in the plan; Ratul should read them until he can defend each choice (see the drill).
 - Server design (callback API plus ThreadPool) was chosen by Claude because the sync-vs-callback question was not answered; revisit if Ratul prefers the other.

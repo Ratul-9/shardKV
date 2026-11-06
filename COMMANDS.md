@@ -154,6 +154,24 @@ Use the same `--keys` on server and client. A run that prints `rpc_errors` above
 
 The scripts start and stop the server themselves, write to `bench/results/phase2_*.txt` (overwriting; set `RESULTS_DIR=bench/results/linux` first to keep another machine's results separate, and pass the same folder to `python3 scripts/summarize_results.py bench/results/linux`), and put the commit hash and machine load in each file's header. Build the release preset first. Close other apps, plug in the charger, and check `uptime` before starting; the matrices use every core, so the Mac will get warm.
 
+### 3h. Sharded store (Phase 3), Linux
+
+First find which CPUs are SMT siblings (same CORE number share a physical core) and pick one CPU per core:
+```sh
+lscpu -e=CPU,CORE,SOCKET,NODE,MAXMHZ
+```
+
+| What | Command |
+|---|---|
+| Closed-loop throughput, 4 shards, 12 clients, shards pinned to CPUs 0-3 | `./build/release/bench/contention --store=sharded --shards=4 --pin=0,1,2,3 --clients=12 --mode=closed --seconds=5` |
+| Same, unpinned (compare) | `./build/release/bench/contention --store=sharded --shards=4 --clients=12 --mode=closed --seconds=5` |
+| Open-loop latency, 6 shards, 200K ops/s offered | `./build/release/bench/contention --store=sharded --shards=6 --pin=0,1,2,3,4,5 --clients=12 --mode=open --rate=200000 --seconds=10` |
+| The whole Phase 3 matrix (about 15 minutes) | `export RESULTS_DIR=bench/results/linux; export PIN_CPUS=0,1,2,3,4,5; scripts/bench_sharded.sh 3` |
+| Confirm the shards are really pinned (while a run is going) | `ps -L -o tid,psr,comm -p $(pgrep contention)` (column PSR is the CPU each thread is on) |
+| Run only the Phase 3 tests | `ctest --preset debug -R 'Sharded|BoundedQueue'` |
+
+The tool prints `shards=N pinned_cpus=...` so each result records the pinning; `-1` means a shard was not pinned. Edit `PIN_CPUS` to match the `lscpu -e` output before running the matrix. The client threads are not pinned and share the machine with the shard threads.
+
 ---
 
 ## 4. Record a result (project rule: no number without context)

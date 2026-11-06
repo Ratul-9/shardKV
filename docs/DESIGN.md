@@ -179,6 +179,89 @@ Decision log and trade-offs. Each entry: what we chose, what we rejected, and wh
 
 ---
 
+## D-012: Shard count and routing hash (2026-11-06)
+
+**Authorship:** written by Claude at Ratul's explicit request (his own draft, `shardedStore.h`, had been reviewed and was replaced; see LEARNING_NOTES Phase 3). Ratul must be able to defend these; challenge any of them.
+
+**Chosen**
+- Shard count is a constructor option (`ShardedStoreOptions::num_shards`, default 4, clamped to at least 1). The Linux sweep is 1 to 6 shards: 6 is the number of physical cores on the Ubuntu machine (D-011).
+- Routing: `shard = HashKey(key) % N`, where `HashKey` is FNV-1a (64-bit) over the key's bytes followed by the splitmix64 finalizer. It is fixed code, so the same key goes to the same shard on every platform and compiler.
+- Spread check: computed independently in Python, 100,000 keys `key:000000000000...` give max/min shard load 1.019 over 6 shards and 1.017 over 4. The unit test asserts under 1.1, and pins five known hash values and four known shard numbers so the function can never change silently.
+
+**Rejected**
+- `std::hash<std::string_view>`: its result differs between libstdc++ (Linux) and libc++ (macOS), so the same key would land on different shards on the two machines and results would not be comparable.
+- FNV-1a without a finalizer: FNV mixes the low bits poorly and `% N` uses exactly those bits.
+- Power-of-two shard count with a bit mask (`hash & (N - 1)`): cheaper than `%`, but forbids N = 3, 5, 6, which the sweep needs. The cost of one 64-bit modulo is small against a cross-thread hand-off.
+- Consistent hashing or rendezvous (highest random weight) hashing: their advantage is that changing N moves only about 1/N of the keys. N is fixed for the lifetime of a store, so that advantage cannot be measured here, and rendezvous hashing costs N hashes per lookup instead of one. Revisit in Phase 8 when cluster membership can change.
+- Range sharding: needs an ordered key space and creates hot ranges; hashing spreads load.
+
+---
+
+## D-013: Per-shard request queue (2026-11-06)
+
+**Chosen:** `BoundedQueue<T>` (`include/lldstore/bounded_queue.h`): one `std::mutex`, two condition variables (`not_full_`, `not_empty_`), a `std::deque`, a capacity (default 1024 per shard).
+- `Push` blocks while full (backpressure: a client that is too fast waits instead of memory growing).
+- `Pop` blocks while empty.
+- `Stop()` drains: `Pop` keeps returning queued items and returns `nullopt` only when the queue is stopped and empty. After `Stop`, `Push` returns false and wakes blocked producers.
+- The queue holds `Request*` (a pointer to the caller's stack object), so enqueueing copies eight bytes.
+- It is a separate generic header with a deliberately small interface so Phase 4 can replace it with a lock-free queue behind the same calls.
+
+**Rejected**
+- Unbounded queue: hides overload and lets latency and memory grow without limit.
+- Reject or drop on a full queue: needs retry semantics in every caller; blocking is the simplest correct baseline.
+- One shared queue that all workers pull from: that is a thread pool plus a lock again (Phase 2), not shared-nothing.
+- One condition variable for both directions: every notify would have to wake everyone or risk waking the wrong kind of waiter.
+- Lock-free queue now: that is Phase 4, and this one is the baseline it must beat.
+
+**Known cost:** every request pays a mutex acquire/release, a condition-variable wake-up of an idle worker, and a context switch each way. This is the cost Phase 4 attacks.
+
+---
+
+## D-014: Reply path (2026-11-06)
+
+**Chosen:** a `Request` object on the CALLER's stack carries the operation, views of the key and value, a pointer to the caller's output string, the result, and its own mutex + condition variable. The caller pushes a pointer to it and blocks in `Wait()`; the worker executes, writes the result and calls `Complete()`. No heap allocation per request, and the key/value views are safe because the caller cannot return before the worker is done.
+- `Complete()` notifies while still holding the lock. If it notified after unlocking, the woken caller could return and destroy the stack `Request` (with its condition variable) before the worker called `notify_one`, which would signal a destroyed object.
+- `Get` copies the value into the caller's string inside the worker, before replying (D-002: a view into a shard's memory is unsafe once another request may change it).
+
+**Rejected**
+- `std::promise` / `std::future`: allocates shared state per request and carries exception machinery we do not need.
+- A callback or fully asynchronous API: not needed for the baseline; the callers (benchmarks, the Phase 2 server) are synchronous, and callbacks complicate lifetimes.
+- Spinning on an atomic flag: burns a core per waiting caller, which on a 6-core machine with pinned shard threads would distort the measurement.
+
+**Cost:** one mutex + condition variable per request, and two context switches per round trip. Phase 4 and later phases look at removing them.
+
+---
+
+## D-015: Thread pinning (2026-11-06)
+
+**Chosen:** `ShardedStoreOptions::pin_cpus`. If non-empty, shard i is pinned to `pin_cpus[i % size]`. A worker pins ITSELF at the start of its thread function with `pthread_setaffinity_np(pthread_self(), ...)` (Linux only), then records `sched_getcpu()`. The constructor waits for all workers to finish this step, so `PinnedCpus()` is final when it returns; -1 means "not pinned" (not requested, not Linux, or the kernel refused). Failure to pin is not fatal. Default is unpinned so the tests run on any machine.
+- Policy for the benchmarks: one shard per physical core, SMT siblings left to the client threads. Find siblings with `lscpu -e=CPU,CORE`: CPUs with the same CORE number share a core.
+- Client threads are NOT pinned and share the machine with the shard threads. With 6 shards on 6 cores and many clients, the clients compete with the shards; record the client count with every result.
+
+**Rejected:** pinning from the creating thread after `std::thread` starts (a window where the worker runs on the wrong core); real-time scheduling classes (need privileges and can starve the system).
+
+**Not verified on a real Linux machine yet:** the Linux branch was compiled here only against a stand-in for glibc's `<sched.h>`, and the pinning test is Linux-only. First real check is on the Ubuntu machine.
+
+---
+
+## D-016: Interface and semantics of `ShardedStore` (2026-11-06)
+
+**Chosen:** the same synchronous interface as `MutexStore` (`Put`, `Get(key, std::string*)`, `Delete`, `Size`), callable from any number of threads; not copyable; the destructor stops every queue (workers finish queued requests) and joins.
+- `Size()` sends one request to every shard at once and sums the answers (one round trip, not N). It is NOT a snapshot of the whole store at one instant, and there are no multi-key operations.
+- Using the store during or after destruction is undefined behaviour (as for any C++ object); a call that finds its queue already stopped throws `std::logic_error` and enqueues nothing.
+
+**Rejected:** a snapshot `Size()` (would need to pause all shards, which defeats shared-nothing); copyable stores (they own threads).
+
+---
+
+## D-017: Phase 3 test strategy and status (2026-11-06)
+
+**Written:** 8 `BoundedQueue` tests and 18 `ShardedStore` tests (routing without threads; behaviour across shards; concurrency with disjoint keys against a per-thread model and with shared keys checking for torn values; capacity-1 queues for backpressure; `Size()` under concurrent inserts; pinning).
+**Status: compiled but NOT RUN.** Ratul asked for the work to be compile-checked only. Debug, release, ASan, UBSan and TSan presets compile cleanly on the Mac with Apple clang (`-Werror`), and the Linux-only branch was syntax-checked against a stand-in header. GCC 11 has not seen this code. The tests have never executed, so any failure they reveal is a normal finding, not a regression.
+**Before this phase counts as done:** run all four non-release presets on the Ubuntu machine (TSan needs `vm.mmap_rnd_bits=28`), then the sweep in `scripts/bench_sharded.sh`.
+
+---
+
 ## Open questions
 
 - Apple clang is 21.0.0. Whether `std::hardware_destructive_interference_size` is available is still to verify in Phase 5.
