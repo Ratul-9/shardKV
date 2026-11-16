@@ -1,4 +1,4 @@
-# References: everything covered through Phase 2
+# References: everything covered through Phase 5
 
 CS:APP = Bryant & O'Hallaron, *Computer Systems: A Programmer's Perspective*, 3rd ed. "Not in CS:APP" means use the named resource.
 
@@ -96,3 +96,33 @@ CS:APP = Bryant & O'Hallaron, *Computer Systems: A Programmer's Perspective*, 3r
 - Physical cores vs SMT siblings and reading the CPU topology — `lscpu(1)` (`lscpu -e`); not in CS:APP
 - Shards (threads in one process) vs nodes (processes in a cluster, Phase 8) — *Designing Data-Intensive Applications* ch. 5-6
 - Checking code you cannot run: strict warnings, five sanitizer presets, stand-in headers for a platform branch — Clang and GCC warning documentation; not in CS:APP
+
+## Phase 4: Lock-free MPSC queue
+
+- Lock-free, wait-free, obstruction-free and what each promises — *The Art of Multiprocessor Programming* (Herlihy, Shavit), ch. 3 and 5; *C++ Concurrency in Action* ch. 7; not in CS:APP
+- The C++ memory model, `memory_order`, happens-before — *C++ Concurrency in Action* ch. 5; cppreference `std::memory_order`; hardware background CS:APP §12.4, §6.4
+- Why x86 hides missing acquire/release and arm64 does not — Preshing, "Weak vs Strong Memory Models" (blog); not in CS:APP
+- Vyukov's intrusive MPSC node queue (XCHG pattern) — Dmitry Vyukov, 1024cores.net "Intrusive MPSC node-based queue"; not in CS:APP
+- Compare-and-swap, the ABA problem — *The Art of Multiprocessor Programming* ch. 10; *C++ Concurrency in Action* §7.2
+- Memory reclamation for lock-free structures (hazard pointers, epochs; revisited in Phase 9) — *The Art of Multiprocessor Programming* ch. 10; *C++ Concurrency in Action* §7.2
+- `std::atomic::wait` / `notify_one` (futex-style sleeping on a value) — cppreference `std::atomic::wait`; Linux man page `futex(2)`
+- Bounded lock-free ring buffers (the alternative to an unbounded list) — Vyukov, 1024cores.net "Bounded MPMC queue"
+- Class templates over a template template parameter, `requires` on member functions — cppreference "Constraints and concepts"; not in CS:APP
+- Running the same test suite against two implementations — GoogleTest Advanced Guide (typed tests); the macro approach used here is documented in `docs/DESIGN.md` D-021
+
+## Phase 5: Cache-conscious hash table
+
+- Counting cache misses per operation; locality; cache lines — CS:APP §6.2 (locality), §6.4 (cache memories), §6.5 (cache-friendly code), §6.6 (memory mountain)
+- Open addressing, linear probing, primary clustering and expected probe lengths — Knuth, *The Art of Computer Programming* vol. 3, §6.4; Cormen et al., *Introduction to Algorithms*, hash tables chapter; not in CS:APP
+- Deletion in linear probing without tombstones (Algorithm R, backward shift) — Knuth vol. 3, §6.4; not in CS:APP
+- Swiss tables: control bytes and SIMD group probing — Matt Kulukundis, "Designing a Fast, Efficient, Cache-friendly Hash Table, Step by Step" (CppCon 2017); abseil.io "Swiss Tables Design Notes"; not in CS:APP
+- F14 hash tables — Facebook Engineering blog, "Open-sourcing F14 for faster, more memory-efficient hash tables" (2019); not in CS:APP
+- Robin Hood hashing (the follow-up experiment) — Pedro Celis, *Robin Hood Hashing* (PhD thesis, 1986); Emmanuel Goossaert, "Robin Hood hashing" blog series; not in CS:APP
+- Incremental rehashing — Redis source `dict.c`; not in CS:APP
+- Hash construction, finalizers, splitmix64 — Sebastiano Vigna, splitmix64; not in CS:APP
+- HashDoS and keyed hashes — Aumasson and Bernstein, "SipHash: a fast short-input PRF" (2012); Crosby and Wallach, "Denial of Service via Algorithmic Complexity Attacks" (USENIX Security 2003); not in CS:APP
+- Data alignment and padding — CS:APP §3.9.3; aligned `operator new` (`std::align_val_t`) — cppreference `operator new`
+- Heterogeneous lookup in unordered containers (the `TransparentStore` control) — cppreference `std::unordered_map::find` (C++20 overloads); P0919R3, P1690R1
+- Allocator size classes, requested bytes vs RSS — CS:APP §9.9 (dynamic memory allocation)
+- `perf stat` hardware counters (cache-misses, LLC-load-misses, dTLB-load-misses) — `perf-stat(1)`; Brendan Gregg, *Systems Performance*; not in CS:APP
+- Design method: cost models before code, controls in benchmarks — `docs/PHASE5_DESIGN_GUIDE.md`; Jeff Dean, "Latency numbers every programmer should know" (orders of magnitude only)

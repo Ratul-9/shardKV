@@ -2,12 +2,14 @@
 // (no network). Isolates the cost of the synchronisation from gRPC overhead: N client threads call
 // the store directly.
 //
-// Usage: contention [--store=none|mutex|shared|sharded] [--clients=N] [--mode=open|closed]
+// Usage: contention [--store=none|mutex|shared|sharded|lockfree] [--clients=N] [--mode=open|closed]
 //                   [--rate=OPS_PER_SEC_TOTAL] [--seconds=S] [--warmup=S] [--keys=K] [--read-pct=P]
-//                   [--shards=N] [--pin=CPU,CPU,...]
+//                   [--shards=N] [--pin=CPU,CPU,...] [--table=map|flat]
 //   --mode=closed  maximum throughput (ops/s); no latency is reported
 //   --mode=open    latency percentiles at a fixed offered rate (coordinated-omission safe)
 //   --store=none   the bare single-threaded Store, valid only with --clients=1 (the reference)
+//   --store=lockfree LockFreeShardedStore: same as sharded but with the Phase 4 lock-free MPSC queue
+//                    in front of each shard (unbounded, no backpressure); same --shards and --pin
 //   --store=sharded  ShardedStore with --shards worker threads (default 4); --pin pins shard i to
 //                    the i-th CPU of the list (Linux only; check `lscpu -e` for sibling threads)
 //
@@ -25,6 +27,7 @@
 #include <vector>
 
 #include "bench_util.h"
+#include "lldstore/flat_store.h"
 #include "lldstore/locked_store.h"
 #include "lldstore/multi_client.h"
 #include "lldstore/sharded_store.h"
@@ -46,10 +49,12 @@ struct Options {
   int read_pct = 90;
   int shards = 4;                // --store=sharded only
   std::vector<int> pin_cpus;     // --store=sharded only; empty means do not pin
+  std::string table = "map";
   std::string detail;            // extra line printed after the header
 };
 
 // The unlocked Store with the same Get(key, string*) interface as the locked wrappers.
+template <typename T>
 class UnlockedStore {
  public:
   void Put(std::string_view k, std::string_view v) { store_.Put(k, v); }
@@ -61,7 +66,7 @@ class UnlockedStore {
   }
 
  private:
-  Store store_;
+  T store_;
 };
 
 // prefill_threads > 1 only for stores that are safe to call from several threads. A sharded
@@ -101,6 +106,7 @@ int Run(S& store, const Options& o, int prefill_threads = 1) {
 
   std::printf("store=%s clients=%d mode=%s keys=%llu read_pct=%d\n", o.store.c_str(), o.clients,
               o.mode.c_str(), static_cast<unsigned long long>(o.keys), o.read_pct);
+  if (o.table != "map") std::printf("table=%s\n", o.table.c_str());
   if (!o.detail.empty()) std::printf("%s\n", o.detail.c_str());
 
   if (o.mode == "closed") {
@@ -151,6 +157,15 @@ bool ParseFlag(const char* arg, const char* name, std::string* value) {
 
 }  // namespace
 
+// Builds a sharded store of type S (ShardedStore or LockFreeShardedStore) and runs the workload.
+template <typename S>
+int RunSharded(const ShardedStoreOptions& so, Options& o) {
+  S s(so);
+  o.detail = "shards=" + std::to_string(o.shards) + " pinned_cpus=";
+  for (int cpu : s.PinnedCpus()) o.detail += std::to_string(cpu) + " ";
+  return Run(s, o, 8);
+}
+
 int main(int argc, char** argv) {
   Options o;
   for (int i = 1; i < argc; ++i) {
@@ -165,6 +180,7 @@ int main(int argc, char** argv) {
     else if (ParseFlag(argv[i], "read-pct", &v)) o.read_pct = std::atoi(v.c_str());
     else if (ParseFlag(argv[i], "shards", &v)) o.shards = std::atoi(v.c_str());
     else if (ParseFlag(argv[i], "pin", &v)) o.pin_cpus = ParseCpuList(v);
+    else if (ParseFlag(argv[i], "table", &v)) o.table = v;
     else {
       std::fprintf(stderr, "unknown argument: %s\n", argv[i]);
       return 2;
@@ -179,12 +195,26 @@ int main(int argc, char** argv) {
     return 2;
   }
 
+  if (o.table != "map" && o.table != "flat") {
+    std::fprintf(stderr, "invalid --table (map or flat)\n");
+    return 2;
+  }
+  const bool flat = o.table == "flat";
+  if (flat && (o.store == "mutex" || o.store == "shared")) {
+    std::fprintf(stderr, "--table=flat works with --store=none, sharded or lockfree\n");
+    return 2;
+  }
+
   if (o.store == "none") {
     if (o.clients != 1) {
       std::fprintf(stderr, "--store=none is not thread-safe; use --clients=1\n");
       return 2;
     }
-    UnlockedStore s;
+    if (flat) {
+      UnlockedStore<FlatStore> s;
+      return Run(s, o);
+    }
+    UnlockedStore<Store> s;
     return Run(s, o);
   }
   if (o.store == "mutex") {
@@ -195,14 +225,16 @@ int main(int argc, char** argv) {
     SharedMutexStore s;
     return Run(s, o);
   }
-  if (o.store == "sharded") {
+  if (o.store == "sharded" || o.store == "lockfree") {
     ShardedStoreOptions so;
     so.num_shards = static_cast<size_t>(o.shards);
     so.pin_cpus = o.pin_cpus;
-    ShardedStore s(so);
-    o.detail = "shards=" + std::to_string(o.shards) + " pinned_cpus=";
-    for (int cpu : s.PinnedCpus()) o.detail += std::to_string(cpu) + " ";
-    return Run(s, o, 8);
+    if (o.store == "sharded") {
+      if (flat) return RunSharded<BasicShardedStore<BoundedQueue, FlatStore>>(so, o);
+      return RunSharded<ShardedStore>(so, o);
+    }
+    if (flat) return RunSharded<FlatShardedStore>(so, o);
+    return RunSharded<LockFreeShardedStore>(so, o);
   }
   std::fprintf(stderr, "unknown --store=%s\n", o.store.c_str());
   return 2;

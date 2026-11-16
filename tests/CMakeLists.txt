@@ -26,3 +26,21 @@ gtest_discover_tests(bounded_queue_tests)
 add_executable(sharded_store_tests sharded_store_test.cpp)
 target_link_libraries(sharded_store_tests PRIVATE lldstore_common GTest::gtest_main)
 gtest_discover_tests(sharded_store_tests)
+
+add_executable(mpsc_queue_tests mpsc_queue_test.cpp)
+target_link_libraries(mpsc_queue_tests PRIVATE lldstore_common GTest::gtest_main)
+gtest_discover_tests(mpsc_queue_tests)
+
+# The ShardedStore tests again, against the lock-free queue. TEST_PREFIX keeps the ctest names
+# distinct from sharded_store_tests, which has the same test names.
+add_executable(lockfree_sharded_store_tests lockfree_sharded_store_test.cpp)
+target_link_libraries(lockfree_sharded_store_tests PRIVATE lldstore_common GTest::gtest_main)
+gtest_discover_tests(lockfree_sharded_store_tests TEST_PREFIX "lockfree.")
+
+add_executable(flat_store_tests flat_store_test.cpp flat_store_suite_test.cpp)
+target_link_libraries(flat_store_tests PRIVATE lldstore_common GTest::gtest_main)
+gtest_discover_tests(flat_store_tests)
+
+add_executable(flat_sharded_store_tests flat_sharded_store_test.cpp)
+target_link_libraries(flat_sharded_store_tests PRIVATE lldstore_common GTest::gtest_main)
+gtest_discover_tests(flat_sharded_store_tests TEST_PREFIX "flat.")

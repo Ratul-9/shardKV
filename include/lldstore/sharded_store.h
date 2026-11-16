@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 #if defined(__linux__)
@@ -21,13 +22,16 @@
 #endif
 
 #include "lldstore/bounded_queue.h"
+#include "lldstore/flat_store.h"
+#include "lldstore/mpsc_queue.h"
 #include "lldstore/store.h"
 
 namespace lldstore {
 
 struct ShardedStoreOptions {
   size_t num_shards = 4;       // clamped to at least 1
-  size_t queue_capacity = 1024;  // per shard; a full queue makes callers wait (backpressure)
+  size_t queue_capacity = 1024;  // per shard; a full queue makes callers wait (backpressure).
+                                 // Ignored by the lock-free queue, which is unbounded (D-018).
   // Empty: threads are not pinned. Otherwise shard i is pinned to pin_cpus[i % pin_cpus.size()].
   // Pinning is implemented on Linux only; elsewhere (or if the kernel refuses) the shard simply
   // runs unpinned and PinnedCpus() reports -1 for it.
@@ -51,9 +55,12 @@ struct ShardedStoreOptions {
 //
 // Not atomic: Size() asks each shard in turn and adds the answers, so it is not a snapshot of the
 // whole store at one instant, and there are no multi-key operations.
-class ShardedStore {
+// QueueT is the queue in front of each shard: BoundedQueue (Phase 3, mutex) or MpscQueue (Phase 4,
+// lock-free). Use the aliases at the bottom of this file. Only the queue differs between the two.
+template <template <typename> class QueueT, typename StoreT = Store>
+class BasicShardedStore {
  public:
-  explicit ShardedStore(ShardedStoreOptions options = {}) {
+  explicit BasicShardedStore(ShardedStoreOptions options = {}) {
     const size_t n = std::max<size_t>(1, options.num_shards);
     shards_.reserve(n);
     for (size_t i = 0; i < n; ++i) {
@@ -70,15 +77,15 @@ class ShardedStore {
   }
 
   // Stops every queue (workers finish what is already queued, then exit) and joins them.
-  ~ShardedStore() {
+  ~BasicShardedStore() {
     for (auto& shard : shards_) shard->queue.Stop();
     for (auto& shard : shards_) {
       if (shard->worker.joinable()) shard->worker.join();
     }
   }
 
-  ShardedStore(const ShardedStore&) = delete;
-  ShardedStore& operator=(const ShardedStore&) = delete;
+  BasicShardedStore(const BasicShardedStore&) = delete;
+  BasicShardedStore& operator=(const BasicShardedStore&) = delete;
 
   void Put(std::string_view key, std::string_view value) {
     Request request;
@@ -211,7 +218,13 @@ class ShardedStore {
   // alignas keeps two shards' hot data (queue mutex and counters) out of the same cache line, so
   // one shard's worker does not slow another by writing to a line they both hold (false sharing).
   struct alignas(kCacheLine) Shard {
-    explicit Shard(size_t queue_capacity) : queue(queue_capacity) {}
+    // BoundedQueue takes a capacity, MpscQueue does not (it is unbounded by design, D-018).
+    explicit Shard(size_t queue_capacity)
+      requires std::is_constructible_v<QueueT<Request*>, size_t>
+        : queue(queue_capacity) {}
+    explicit Shard(size_t /*queue_capacity*/)
+      requires(!std::is_constructible_v<QueueT<Request*>, size_t>)
+        : queue() {}
 
     void Start(int pin_cpu, std::latch& ready) {
       worker = std::thread([this, pin_cpu, &ready] { Run(pin_cpu, ready); });
@@ -267,8 +280,8 @@ class ShardedStore {
 #endif
     }
 
-    Store store;                        // touched ONLY by `worker`: the shared-nothing part
-    BoundedQueue<Request*> queue;       // shared: any caller pushes, the worker pops
+    StoreT store;                       // touched ONLY by `worker`: the shared-nothing part
+    QueueT<Request*> queue;             // shared: any caller pushes, ONLY the worker pops
     std::atomic<int> cpu{-1};           // written once by the worker, read by PinnedCpus()
     std::thread worker;                 // declared last: started after everything above exists
   };
@@ -284,5 +297,11 @@ class ShardedStore {
   // is a separate over-aligned heap object.
   std::vector<std::unique_ptr<Shard>> shards_;
 };
+
+// Phase 3: one mutex + two condition variables per shard queue.
+using ShardedStore = BasicShardedStore<BoundedQueue>;
+// Phase 4: lock-free MPSC queue per shard (D-018 to D-021). Identical in every other way.
+using LockFreeShardedStore = BasicShardedStore<MpscQueue>;
+using FlatShardedStore = BasicShardedStore<MpscQueue, FlatStore>;
 
 }  // namespace lldstore

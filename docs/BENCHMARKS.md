@@ -341,6 +341,42 @@ Throughput in ops/s, median of 3 (min-max):
   4. Pinning matters less than expected at low load and more when clients and shards compete.
   5. Shard load imbalance is about 2% (computed from the hash, D-012); throughput differences between shards should therefore be small.
 
+## B-012 (PLANNED, not measured): Phase 4 lock-free MPSC queue vs the Phase 3 mutex queue
+
+- **Not run.** `bench/contention.cpp --store=lockfree` exists; no Phase 4 number has been measured. Nothing below is a result.
+- **Machine and method:** Ubuntu desktop for the pinned sweep (same commands as B-011 with `--store=lockfree` beside `--store=sharded`, same shards, clients, pins, repetitions), plus the Mac (arm64) for a second architecture. Also a queue-only hand-off micro-benchmark (not written yet): N producer threads and one consumer, items per second and push-to-pop latency, for `BoundedQueue` vs `MpscQueue`, to separate the queue from the rest of the request path. Record `uptime`, commit hash and pin list with every file.
+- **Hypotheses (predictions, not findings):**
+  1. The lock-free queue helps most with many clients and few shards (many producers on one queue), where the mutex queue's lock is contended.
+  2. With one client the difference is small, because the hand-off cost is dominated by waking the shard thread and by the `Request` mutex/condvar, which Phase 4 does not change.
+  3. The per-push heap allocation and the shared `state_` counter eat part of the gain; if the gain is small or negative, an intrusive node (D-018) is the first thing to try.
+  4. Tail latency may get WORSE with more client threads than cores, because a producer preempted between its `exchange` and its link store stalls the consumer (D-020).
+  5. Under overload the queue grows without limit (no backpressure); memory use and p99 should grow with the offered rate where Phase 3 plateaued.
+
+## B-013 (PLANNED, not measured): Phase 5 `FlatStore` vs `std::unordered_map`
+
+- **Not run.** Ratul asked for no test or benchmark runs. `bench/table_bench.cpp`, `footprint <keys> flat` and `contention --table=flat` are built (release preset, Mac). No Phase 5 number exists. Nothing below is a result.
+- **Machines:** both. The Ubuntu desktop is primary, because it has `perf` counters and the libstdc++ behaviour (a 16-byte key does not fit the 15-byte inline buffer, so `Store::Get` heap-allocates a temporary key). The Mac is secondary (libc++, arm64). Release preset. Record `uptime`, commit hash and compiler with every file.
+- **Contenders:** `Store` (Phase 1 baseline); `TransparentStore` (`unordered_map` with heterogeneous lookup, a **control** that removes only the temporary key string, D-003); `FlatStore` (D-022 to D-030).
+- **Commands:**
+  - `scripts/bench_table.sh`: `table_bench` with 5 repetitions, and `footprint` for map and flat at 100K and 1M keys.
+  - On Linux: `perf stat -e cycles,instructions,cache-references,cache-misses,L1-dcache-load-misses,LLC-load-misses,dTLB-load-misses,branch-misses build/release/bench/table_bench --benchmark_filter='BM_GetHit<.*>/1000000' --benchmark_min_time=2s`, and the same for `BM_GetMiss`, once per contender (filter on the contender name).
+  - In process, end to end: `contention --store=lockfree --table=map|flat` (same shards, clients and pins as B-012).
+- **Matrix:**
+  - Get hit, Get miss, Put overwrite at 1K / 100K / 1M keys.
+  - Insert of 1M new keys.
+  - Delete and reinsert at 100K / 1M keys.
+  - Get with a value copy at 1M keys for (key, value) = (16, 8), (16, 64), (40, 64), (16, 512) bytes.
+  - `FlatStore` at load 25/50/75/90% with capacity fixed at 2^20, next to `Store` holding the same keys.
+  - Footprint (requested bytes, allocations and RSS per entry).
+- **Hypotheses (predictions, not findings):**
+  1. At 1M keys `FlatStore` beats `Store` on Get hit (about 2 cache misses against 3-4) and by more on Get miss (about 1 against 1-2). `perf` should show the cache-miss counts move the same way.
+  2. On Linux, `TransparentStore` lands between `Store` and `FlatStore`: part of `Store`'s cost is the temporary string allocation, not the chained layout. On the Mac, `Store` and `TransparentStore` are close (a 16-byte key fits libc++'s inline buffer).
+  3. At 1K keys (everything cached) the gaps shrink to instruction counts, and the hash function cost may decide the order.
+  4. Load sweep: Get hit barely changes from 25% to 75%; Get miss grows sharply at 90% (Knuth: about 50 slots, or 13 cache lines, against 8.5 at 75%).
+  5. Footprint at 1M keys: about 1 allocation per entry against 2, and about 126 requested bytes per entry against 149 (Mac, B-004). The estimate is a 92-byte entry plus about 34 bytes of slot array at load ~0.48. RSS depends on `malloc` size classes.
+  6. Insert of 1M keys: faster on average, but each doubling is one long pause. A throughput benchmark hides that; an open-loop run would show it.
+  7. End to end through the lock-free sharded store, the gain shrinks a lot, because the cross-thread hand-off (Phases 3-4) costs far more than a table lookup.
+
 ---
 
 ## Not yet measured / known limits

@@ -250,3 +250,77 @@ Tooling: Docker was installed but its daemon was not running, so a GCC 11 contai
 - Drill: `docs/INTERVIEW_NOTES.md` (Phase 3 drill, model answers)
 
 (Phase 3 section is closed with "End of Phase 3" only after the tests and benchmarks have run and the phase is tagged.)
+
+---
+
+## Phase 4: Lock-free MPSC queue  (IN PROGRESS: implemented and build-checked, not yet run)
+
+### Topics Studied
+- Lock-free vs wait-free, and what they do and do not promise. *The Art of Multiprocessor Programming* ch. 3 and 5; *C++ Concurrency in Action* ch. 7. Not in CS:APP.
+- The C++ memory model: `memory_order` relaxed, acquire, release, acq_rel, seq_cst; happens-before; why x86 hides ordering bugs. *C++ Concurrency in Action* ch. 5; cppreference `std::memory_order`. Hardware background: CS:APP §12.4 (shared variables), §6.4 (caches).
+- Vyukov's intrusive MPSC node queue (exchange the tail, then link): 1024cores.net. Not in CS:APP.
+- ABA and memory reclamation (why a CAS-free design with one consumer avoids both). *The Art of Multiprocessor Programming* ch. 10; *C++ Concurrency in Action* §7.2.
+- `std::atomic::wait`/`notify_one` (C++20) as a futex-style sleep keyed on a value. cppreference `std::atomic::wait`.
+- False sharing of head/tail/counter (`alignas(64)`). CS:APP §6.4-6.5; Drepper §6.4.
+
+### What you have shown you know
+- **[Knew]** Asked whether the design is "wait-free" and recognised Vyukov's as the XCHG pattern.
+- **[Corrected]** "A bounded queue cannot be lock-free, so it must be unbounded": bounded lock-free queues exist (Vyukov's bounded ring); unbounded is a simplicity choice with a real cost (no backpressure), not a necessity.
+- **[Corrected]** "One MPSC queue all threads write to, one reader": that would give the whole store ONE consumer and destroy the sharding. The design is one MPSC queue per shard: many producers, that shard's single worker as the consumer.
+- **[Corrected]** The skeleton kept a `deque`, a `std::thread` and a mutex-era include list. The queue does not own the consumer thread, and a deque cannot be shared between threads.
+- **[To do]** Draw the acquire/release edges of D-019 from memory and defend D-018 to D-021 (code written by Claude).
+
+### Key Insights
+- **"Lock-free" is a claim you have to read carefully.** Producers never wait, but the consumer can be held up by a preempted producer. Say "wait-free push, non-blocking pop with a blocking window".
+- **Release/acquire is about the data, not the pointer.** The pointer store/load is the carrier; the point is that everything written before the release is visible after the acquire. On x86 you can get this wrong and never see it.
+- **No CAS means no ABA.** With one consumer freeing a node only after its successor is linked, the reclamation problem of general lock-free structures disappears; it comes back in Phase 9 for structures that need it.
+- **Removing the mutex does not remove the cost.** Still there: a heap allocation per push, an atomic counter every producer shares, and the consumer's wake-up. Whether the net is a win is B-012, unmeasured.
+
+### Code References
+- `include/lldstore/mpsc_queue.h`: `Push`, `TryPop`, `Pop`, `Stop`; `state_` word
+- `include/lldstore/sharded_store.h`: `BasicShardedStore<QueueT>`, aliases at the bottom
+- Tests: `tests/mpsc_queue_test.cpp`, `tests/lockfree_sharded_store_test.cpp`
+- Decisions: `docs/DESIGN.md` D-018 to D-021; planned measurements: `docs/BENCHMARKS.md` B-012
+- Drill: `docs/INTERVIEW_NOTES.md` (Phase 4 drill, model answers)
+
+---
+
+## Phase 5: Cache-conscious hash table  (IN PROGRESS: implemented and built; one debug test run; no benchmark)
+
+### Topics Studied
+- Memory hierarchy, cache lines, locality, counting cache misses per operation. CS:APP §6.2-6.6.
+- Open addressing, linear probing, primary clustering, expected probe lengths; Knuth's deletion algorithm (backward shift). Knuth, *The Art of Computer Programming* vol. 3 §6.4; not in CS:APP.
+- Load factor and resizing strategies (doubling, incremental). Cormen et al., hash tables chapter; Redis `dict.c` (incremental rehash); not in CS:APP.
+- Swiss tables and Robin Hood hashing (the follow-ups). Kulukundis, "Designing a Fast, Efficient, Cache-friendly Hash Table, Step by Step" (CppCon 2017); Celis, *Robin Hood Hashing* (1986); not in CS:APP.
+- Hash function construction: word-at-a-time mixing, finalizers, why length must be mixed in, HashDoS. splitmix64 (Vigna); SipHash paper (Aumasson, Bernstein); not in CS:APP.
+- Aligned allocation (`operator new(size, std::align_val_t)`), alignment and padding. CS:APP §3.9.3 (data alignment); cppreference `operator new`.
+- Reading the memory cost of a design: requested bytes vs RSS, size classes. CS:APP §9.9.
+
+### What you have shown you know
+- **[To do]** Phase 5 pre-check (`docs/INTERVIEW_NOTES.md`): not answered yet.
+- **[To do]** Phase 5 was written by Claude at Ratul's request, with no code comments. Work through `docs/PHASE5_DESIGN_GUIDE.md`, its exercises (Part 7) and the defend-it questions.
+
+### Key Insights
+- **Count cache misses, not instructions,** once the data is bigger than the caches. The design follows from that count: fewer lines per probe, a hash filter before following a pointer, one allocation per entry.
+- **Out-of-line entries keep views stable.** Open addressing usually breaks D-002 because entries move on growth. Here only the 16-byte slots move, so a view survives inserts and growth, and a test pins it.
+- **Store the full hash:** it filters non-matches, makes growth avoid touching entries, and gives deletion each slot's home for free.
+- **Two hashes over one key must be independent.** Shard routing and slot choice must not use the same bits, or a shard's keys share low bits and fill only part of the table.
+- **Deletion in linear probing:** backward shift instead of tombstones.
+- **A knob is not a result.** The 0.75 load factor stays a guess until the load sweep runs.
+- **Controls make a benchmark honest.** `TransparentStore` separates "no temporary key string" from "open addressing"; without it a libstdc++-specific win would be credited to the cache design.
+- **Adversarial test inputs** (constant hash, first-byte hash, chosen home slots) force the rare paths that random tests with a good hash almost never reach.
+- **Design decisions:** D-022 to D-030 (`docs/DESIGN.md`); teaching narrative in `docs/PHASE5_DESIGN_GUIDE.md`.
+
+### Mistakes & Fixes
+- (Claude, while writing) The first `footprint` change kept the store alive by deliberately leaking it -> restructured so the measurement happens inside a function that owns the store.
+- (Claude, while writing) The first `footprint` would not have counted the slot array at all, because aligned `operator new` was not replaced -> added counting aligned `new`/`delete`.
+- (Process) Phase 5 was started before Phases 3 and 4 were run or tagged, against the plan's "one phase at a time" rule (Ratul's decision, after a reminder).
+
+### Code References
+- `include/lldstore/flat_store.h`: `FlatHash` lines 17-55; `Put` 81-97; `Get` 99-104; `Delete` and backward shift 106-122; `Reserve` 124-128; `Entry` 139-150; `Slot` 152-158; `Home` 160; `Probe` 162-167; `Rehash` 179-192; `Assign` 194-203; `AllocateSlots` 205-214; `MakeEntry` 216-224
+- `include/lldstore/sharded_store.h`: `BasicShardedStore<QueueT, StoreT>`, alias `FlatShardedStore`
+- Tests: `tests/flat_store_test.cpp`, `tests/flat_store_suite_test.cpp`, `tests/flat_sharded_store_test.cpp`
+- Benchmarks: `bench/table_bench.cpp`, `bench/footprint.cpp` (`map|flat`), `bench/contention.cpp` (`--table=flat`), `scripts/bench_table.sh`; plan in `docs/BENCHMARKS.md` B-013
+- Decisions: `docs/DESIGN.md` D-022 to D-030; guide: `docs/PHASE5_DESIGN_GUIDE.md`; drill: `docs/INTERVIEW_NOTES.md` (Phase 5)
+
+(The Phase 5 section is closed with "End of Phase 5" only after the tests and benchmarks have run and the phase is tagged.)

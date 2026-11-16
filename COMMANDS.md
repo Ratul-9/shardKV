@@ -172,6 +172,33 @@ lscpu -e=CPU,CORE,SOCKET,NODE,MAXMHZ
 
 The tool prints `shards=N pinned_cpus=...` so each result records the pinning; `-1` means a shard was not pinned. Edit `PIN_CPUS` to match the `lscpu -e` output before running the matrix. The client threads are not pinned and share the machine with the shard threads.
 
+
+## 3i. Phase 4: lock-free queue tests and benchmark flag
+
+| What | Command |
+|---|---|
+| Queue tests only | `ctest --preset debug -R "MpscQueue"` |
+| ShardedStore tests against the lock-free queue | `ctest --preset debug -R "^lockfree\\."` |
+| Same, under TSan (run on BOTH machines) | `cmake --build --preset tsan -j && ctest --preset tsan -R "MpscQueue|lockfree"` |
+| Repeat a flaky-looking test many times | `build/tsan/tests/mpsc_queue_tests --gtest_repeat=50 --gtest_filter='MpscQueueConcurrency.*'` |
+| Benchmark with the lock-free queue (after tests pass) | `build/release/bench/contention --store=lockfree --shards=4 --clients=4 --mode=closed --seconds=4` |
+
+## 3j. Phase 5: hash table tests and benchmarks (`FlatStore`)
+
+| What | Command |
+|---|---|
+| Table tests only (15 new tests + your 14 `Store` tests against `FlatStore`) | `ctest --preset debug -R "^Flat"` |
+| Sharded-store tests against `FlatShardedStore` | `ctest --preset debug -R "^flat\\."` |
+| All Phase 5 tests under each sanitizer | `for p in asan ubsan tsan; do cmake --build --preset $p -j && ctest --preset $p -R "[Ff]lat"; done` |
+| Table benchmarks, everything (B-013) | `scripts/bench_table.sh 5` (Linux: `export RESULTS_DIR=bench/results/linux` first) |
+| One comparison: Get hit at 1M keys, all three contenders | `build/release/bench/table_bench --benchmark_filter='BM_GetHit<.*>/1000000' --benchmark_repetitions=5 --benchmark_report_aggregates_only=true` |
+| Load-factor sweep only | `build/release/bench/table_bench --benchmark_filter='At[LS]'` (matches `BM_FlatAtLoad` and `BM_MapAtSameKeys`) |
+| Footprint, map vs flat | `build/release/bench/footprint 1000000 map` and `build/release/bench/footprint 1000000 flat` |
+| Cache misses per contender (Linux) | `perf stat -e cycles,instructions,cache-misses,LLC-load-misses,dTLB-load-misses,branch-misses build/release/bench/table_bench --benchmark_filter='BM_GetHit<FlatStore.*>/1000000' --benchmark_min_time=2s` (repeat with `BM_GetHit<Store,.*` and `BM_GetHit<TransparentStore.*`; `--benchmark_list_tests` prints every name) |
+| End to end through the lock-free sharded store | `build/release/bench/contention --store=lockfree --table=flat --shards=4 --clients=4 --mode=closed --seconds=4` (compare with `--table=map`) |
+
+`table_bench` contenders: `Store` (Phase 1 baseline), `TransparentStore` (control: `unordered_map` without the temporary key string), `FlatStore`. The teaching guide for this phase is `docs/PHASE5_DESIGN_GUIDE.md`.
+
 ---
 
 ## 4. Record a result (project rule: no number without context)

@@ -183,7 +183,88 @@ One shard per physical core avoids two shards sharing a core's execution units t
 
 ---
 
+## Phase 4 drill: model answers (written by Claude, NOT Ratul's own, NOT graded)
+
+Ratul asked Claude to write the Phase 4 code. Answer these in your own words before treating the phase as yours. Draw the edges on paper first.
+
+**Q1. Is Vyukov's MPSC queue wait-free? Lock-free? Say exactly what is true of `Push` and of `Pop`.**
+
+`Push` is wait-free: one atomic `exchange` and one store, no loop, so it finishes in a bounded number of steps whatever other producers do. `Pop` never blocks by itself but is not wait-free or lock-free: between a producer's `exchange` and its `next` store the list is inconsistent, and the consumer sees nothing even though a push has begun. If that producer is preempted there, the consumer (and every item behind it) waits for it. So: wait-free producers, a consumer with a known blocking window. A fully lock-free MPSC needs more machinery.
+
+**Q2. Draw the happens-before edge that makes the consumer see a fully written value. What if `next` were stored `relaxed`?**
+
+Producer writes the node's value, then `prev->next.store(fresh, release)`. The consumer's `stub->next.load(acquire)` reads that value; the release/acquire pair means the value write happens-before the consumer's read. With `relaxed` there is no ordering: the consumer could see the pointer but stale or half-written contents. On x86 this usually still works (stores are not reordered with other stores), so the bug would hide there; on arm64 it can fail. That is why the phase says to test on both.
+
+**Q3. Why is `tail_.exchange` `acq_rel` and not just release or just acquire?**
+
+Release: the next producer that exchanges and gets our node as its `prev` must see it fully constructed (value, `next == nullptr`). Acquire: we receive `prev` and are about to write `prev->next`; we must see that node fully constructed, or the constructor's initialisation could be ordered after our store and overwrite it. Each exchange is both consumer of the previous producer's node and publisher of ours.
+
+**Q4. How are nodes freed, by whom, and why is there no ABA problem?**
+
+The consumer frees the old stub after advancing `head_` past it. That is safe because the only thread that writes `stub->next` is the single producer that got `stub` back from its own exchange, and the consumer has just seen that write; no other thread holds a pointer to the stub. ABA is a problem for compare-and-swap loops, where a pointer is reused between a read and the CAS. There is no CAS here (only `exchange`), and a node is never reused while anyone can reach it, so the question never arises.
+
+**Q5. What does the consumer do when the queue looks empty during a producer's two-step push? What stops it exiting early on `Stop`?**
+
+A push first increments `state_` (count of items pushed and not yet popped, plus a stop bit), then links. `Pop` sees `TryPop` empty: if `state_ == 0` it sleeps (`wait(0)` returns immediately if a push already changed the word, so no lost wake-up); if `state_ > 0` a producer is mid-push, so it yields and retries. On stop, `Pop` returns "stopped and drained" only when `state_` is exactly the stop bit: no queued item and none in flight. A push racing with `Stop` is decided by one `fetch_add`: it either sees the stop bit and is rejected, or is counted and will be delivered.
+
+**Defend-it questions for Ratul (he did not write this code):**
+1. Why one `MpscQueue` per shard and not one for the whole store?
+2. What did unbounded cost compared with Phase 3, and what would you measure to see it?
+3. Allocating a node per push may cost more than the lock it replaced. How would you find out, and what is the intrusive alternative?
+4. Why are `head_`, `tail_` and `state_` on separate cache lines?
+5. Which test would catch a lost wake-up? Which would catch a Push/Stop race? What bug would they NOT catch on x86?
+
 ## Still owed (carry forward)
 - Phase 3 drill: model answers above (Claude's, not graded); answer in your own words when ready.
 - Phase 1 drill Q4 and Q5, and the Phase 2 pre-check Q1 and Q2: retry in your own words.
 - Earlier re-answers are self-reported and ungraded.
+
+---
+
+## Phase 5 pre-check (for Ratul to answer in his own words; not yet answered)
+1. A `Get` hit on a 1M-entry `std::unordered_map` touches how many cache lines, and which ones? Why does that matter more than the instruction count?
+2. In open addressing, why can you not simply empty a slot when a key is deleted?
+3. Our shards route with `HashKey(key) % N`. What goes wrong if each shard's table uses the low bits of the same hash to choose a slot?
+
+## Phase 5 drill: model answers (written by Claude, NOT Ratul's own, NOT graded)
+
+Ratul asked Claude to write the Phase 5 code without comments. The reasoning is in `docs/PHASE5_DESIGN_GUIDE.md`. No Phase 5 benchmark has run, so every performance claim below is a prediction.
+
+**Q1. Why is the slot `{64-bit hash, pointer}` rather than the key and value stored inline?**
+
+A probe only reads slots: 16 bytes each, 4 per cache line, adjacent. The stored hash rejects almost every non-matching slot without following the pointer, so a hit costs about one slot line plus one entry line, and a miss about one slot line. Inline `std::string` keys and values would make slots 48-64 bytes (one per line), and growth would move them, invalidating every view `Get` had returned. Out-of-line entries never move, so the D-002 promise ("a Put of a different key never invalidates your view") survives, even across a resize. The stored hash also lets growth and deletion work without touching any entry.
+
+**Q2. Explain backward-shift deletion, and why not tombstones.**
+
+Deleting leaves a hole, and a lookup stops at the first empty slot, so any key whose probe passed through the hole would become unreachable. Backward shift walks forward from the hole until an empty slot. Each entry that can move into the hole and still be reachable from its home (distance from home to its slot ≥ distance from hole to its slot, modulo the capacity) is moved, and the hole follows it. Tombstones instead mark "deleted, keep looking". They pile up, make misses longer, need periodic clean-up rehashes, and if inserts never reuse them, a churning table fills with them and a miss never terminates.
+
+**Q3. Why a power-of-two capacity, and why the TOP bits of the hash for the home slot?**
+
+A power of two turns `hash % capacity` (a 20-40-cycle division) into a shift. The top bits are best mixed by multiplication-based hashing. The important reason is shard routing: keys reach shard `i` because `HashKey(key) % N == i`. If a shard's table used the low bits of the same hash with N = 4, every key in that shard would share its low 2 bits, only a quarter of the home slots would be used, and clusters would explode. We use a different hash function **and** the top bits.
+
+**Q4. What is the maximum load factor, and how did you choose it?**
+
+0.75, but only as a starting point. With linear probing, Knuth's estimate for a miss is ½(1 + 1/(1-α)²): 2.5 slots at 0.5, 8.5 at 0.75 and 50.5 at 0.9. After a doubling the load drops to 0.375, so in steady state it sits between 0.375 and 0.75. The slot array costs 16/α bytes per entry. The value is a constructor parameter, and B-013 sweeps 25-90% at a fixed capacity to replace the guess with a measurement. The clamp at 0.95 guarantees an empty slot, which every probe loop needs in order to terminate.
+
+**Q5. You claim "no false sharing". Defend it precisely.**
+
+The claim is narrow:
+- Inside a table there is nothing to falsely share, because only the shard's worker thread ever touches it (shared-nothing).
+- The slot array is allocated 64-byte aligned, so two shards' arrays never share a cache line, and no 16-byte slot straddles two lines.
+- What is **not** guaranteed: entries come from `malloc`, so in principle two shards' entries could share a line. glibc and macOS use per-thread arenas or caches, which makes this unlikely, but Phase 6's per-thread allocators are what make it impossible.
+- The `Shard` object itself is `alignas(64)`.
+
+**Defend-it questions for Ratul (he did not write this code):**
+1. `Put` probes once, and probes again after a rehash. Why is the first index useless after `Rehash`?
+2. Why must `Assign` allocate the new entry before freeing the old one? Give the call that breaks if the order is reversed.
+3. Why `memmove` and not `memcpy` in `CopyBytes`?
+4. What does `TransparentStore` in `table_bench.cpp` control for, and what wrong conclusion would you draw without it on Linux?
+5. Why does `Get` check `size_ == 0` before probing? (Two reasons: speed, and a shift by 64.)
+6. What does the `ConstantHash` test exercise that a random test with a good hash almost never would?
+7. Where does the resize pause show up in a benchmark, and in which kind of benchmark does it not show up?
+8. The hash seed is fixed. Who could exploit that, and how would you fix it?
+
+## Still owed (carry forward)
+- Phase 5 pre-check above, in your own words.
+- Phase 3 and Phase 4 drills: model answers are above (Claude's, not graded); answer in your own words when ready.
+- Phase 1 drill Q4 and Q5, and the Phase 2 pre-check Q1 and Q2: retry in your own words.

@@ -262,6 +262,166 @@ Decision log and trade-offs. Each entry: what we chose, what we rejected, and wh
 
 ---
 
+## D-018: Unbounded lock-free MPSC queue with one allocated node per push (2026-11-09)
+
+**Written by Claude at Ratul's request** (a [HAND-WRITE] item; Ratul chose unbounded and the Vyukov XCHG design, and had started `mpsc_queue.h`). Compiled and build-checked only; **no test or benchmark has been run**.
+
+**Chosen:** `MpscQueue<T>` (`include/lldstore/mpsc_queue.h`), Vyukov's node-based MPSC queue: producers `exchange` the tail pointer then link the old tail's `next`; the single consumer reads `head->next`. One queue PER SHARD (many client threads push, that shard's worker pops), exactly where `BoundedQueue` sat in Phase 3. Interface: `Push`, `Pop`, `Stop`, `Size` as in `BoundedQueue`, plus `TryPop`.
+- **Unbounded, no backpressure.** A slow shard lets its queue grow without limit. Chosen by Ratul because the XCHG design is unbounded; bounded lock-free queues exist (Vyukov's bounded MPMC ring with per-slot sequence numbers) but are a different, harder design. Cost to measure: memory and latency growth under overload, which Phase 3's queue prevented.
+- **One heap node per push** (`new Node`, freed by the consumer). Simple and generic (`T = Request*`), but it costs an allocation per request, shared with all other threads' allocator traffic. **Rejected for now:** an intrusive node embedded in `Request` (the request is already on the caller's stack and alive until `Wait()` returns, so no allocation would be needed). It is the obvious follow-up if the measurement shows allocation cost; Phase 6 revisits allocation.
+- **Progress guarantee, stated precisely:** `Push` is wait-free (one `exchange`, one store, no loop). `TryPop` never blocks but can report "nothing" while a producer is mid-push, so the queue as a whole is NOT wait-free or lock-free in the strict sense: a producer stalled between its two steps hides every item behind it from the consumer until it resumes (D-020).
+- `Size()` is approximate and counts pushes in flight.
+
+**Rejected:** a mutex around a deque (that is `BoundedQueue`); a CAS-loop queue (Michael-Scott) which allows multiple consumers but pays a retry loop and needs ABA/reclamation machinery we do not need with one consumer.
+
+**Single-consumer is a contract, not enforced.** `head_` is a plain pointer because exactly one thread (the shard worker) pops. Nothing in the code checks it.
+
+---
+
+## D-019: Memory orders in `MpscQueue` and the happens-before edges (2026-11-09)
+
+Written by Claude at Ratul's request. **Ratul: draw these edges yourself until you can do it from memory (the phase's "done when").**
+
+| Operation | Order | Edge it creates |
+|---|---|---|
+| `Push`: `tail_.exchange(fresh)` | `acq_rel` | release: whoever next exchanges and gets `fresh` as its `prev` sees `fresh` fully constructed. acquire: we see `prev` fully constructed before we write `prev->next`. Also the single total order on `tail_` is what serialises producers: each gets a distinct `prev`. |
+| `Push`: `prev->next.store(fresh)` | `release` | publishes `fresh` and its value to the consumer. |
+| `TryPop`: `stub->next.load` | `acquire` | pairs with the store above: seeing `next` means seeing its value. Without it the consumer could read a half-written `T` (a data race that x86 would often hide). |
+| `state_.fetch_add` in `Push`, `fetch_or` in `Stop` | `acq_rel` | read-modify-writes on one word, so "stopped?" and "I am now in flight" are decided atomically (D-020). |
+| `state_.fetch_sub` in `TryPop` | `release` | the consumer's reads of the node happen before the count drops. |
+| `state_.load` in `Pop` | `acquire` | sees the count/stopped bit together with what the producer did before bumping it. |
+
+**Why no `seq_cst` anywhere:** nothing needs one global order across two different variables; every edge above is a release/acquire pair on a single location. **Risk:** x86 is strongly ordered, so a too-weak order here would not fail on the Ubuntu machine; the arm64 Mac is the better place to find such a bug. Run the TSan and stress tests on both.
+
+---
+
+## D-020: The inconsistent window, stop, and the parking protocol (2026-11-09)
+
+**The window:** between a producer's `tail_.exchange` and its `prev->next.store`, `tail_` points at a node nothing links to. The consumer sees `head->next == nullptr` although a push has begun.
+
+**Chosen:** one atomic `state_` word = (count of pushed-but-not-popped items) | (stopped flag in the top bit). `Push` increments it BEFORE linking, so `count > 0` means "an item exists or is being linked". `Pop`:
+- `TryPop` succeeds: return it.
+- `TryPop` empty and `state_ == 0`: truly idle, sleep with `state_.wait(0)`. It wakes on any change (push or Stop), and `wait` compares atomically, so a push cannot slip between the check and the sleep (no lost wake-up).
+- `TryPop` empty and `state_ > 0`: a producer is mid-push. `yield()` and retry (the window is a few instructions long; there is nothing to be woken by).
+- `state_ == kStopped` exactly: stopped, nothing queued, nothing in flight: return `nullopt`. This keeps the Phase 3 contract (drain, then report stopped) without a mutex.
+
+`Push` after `Stop` is detected from the SAME `fetch_add` that claims the slot, so a push either is rejected (and undoes its increment) or is counted before `Stop` and will be delivered. Pushes racing with `Stop` are therefore delivered if and only if `Push` returned true (tested).
+
+**Costs, unmeasured:** every push does a `fetch_add` on a shared word and a `notify_one` call (an implementation may make that a system call or a cheap check when nobody waits; not verified); every pop does a `fetch_sub`. The shared counter is a second contended cache line next to `tail_`. The 64-bit word is used so the count cannot overflow into the flag; `std::atomic<uint64_t>::wait` may be implemented with a lock pool rather than a native futex (libstdc++ and libc++ differ). **Rejected:** a separate `stopped_` flag plus an eventcount (three atomics, harder to prove); spinning when idle (100% CPU per shard).
+
+**Where it can still go wrong:** a producer preempted between its two steps stalls the consumer for the length of that preemption (the known blocking window of this design). With pinned shards and many more client threads than cores this is plausible; watch the tail latency.
+
+---
+
+## D-021: Making `ShardedStore` generic over its queue, and test status (2026-11-09)
+
+**Chosen:** `BasicShardedStore<template<class> class QueueT>`; `ShardedStore = BasicShardedStore<BoundedQueue>` (Phase 3, unchanged behaviour and name) and `LockFreeShardedStore = BasicShardedStore<MpscQueue>`. Only the queue differs, so a benchmark comparison changes one variable. `Shard`'s constructor is selected by `requires std::is_constructible_v<Queue, size_t>`: a capacity for `BoundedQueue`, none for `MpscQueue` (`queue_capacity` is ignored there).
+- `bench/contention.cpp`: `--store=lockfree` (same `--shards`, `--pin`).
+- **Tests:** `tests/mpsc_queue_test.cpp` (15 tests: order, empty, move-only, destructor frees, Stop semantics, blocking Pop and wake-ups, ping-pong lost-wakeup check, 8 producers x 50,000 items exactly once and in per-producer order, pushes racing Stop). `tests/lockfree_sharded_store_test.cpp` includes `sharded_store_test.cpp` with `ShardedStore` renamed by a macro, so all 18 ShardedStore tests run against the lock-free queue too (ctest prefix `lockfree.`). One of them (`TinyQueuesApplyBackpressure...`) passes without testing backpressure, since the queue is unbounded.
+- **Rejected:** typed tests (would have meant rewriting 18 tests); copying the test file (two copies drift).
+
+**Status: all five presets (debug, release, asan, ubsan, tsan) BUILD with `-Werror` on the Mac (Apple clang, arm64). NO test and NO benchmark has been run. GCC 11 has not seen this code** (risks: `requires` on constructors of a class template, `std::atomic::wait/notify`). Before the phase counts as done: run the four non-release presets on both machines (the Mac is arm64 and weakly ordered, the better place to expose a missing acquire/release), then a TSan soak, then the sweep in `docs/BENCHMARKS.md` B-012.
+
+---
+
+## Phase 5: cache-conscious hash table (D-022 to D-030)
+
+**Authorship and status (2026-11-12):** Claude wrote all of Phase 5 (`include/lldstore/flat_store.h`, its tests, `bench/table_bench.cpp`, and the footprint and contention changes) at Ratul's request. The hash table is a [HAND-WRITE] item. **At Ratul's request the code has no comments.** The line-by-line commentary and the full reasoning are in `docs/PHASE5_DESIGN_GUIDE.md`, which is the companion to these entries. All five presets build with `-Werror` on the Mac (Apple clang, arm64). `flat_store_tests` ran once in the debug preset before Ratul asked for no runs (29/29 passed). No other test has run, and no benchmark. GCC 11 has not compiled it.
+
+## D-022: Slot = {64-bit hash, pointer to entry}; key and value in one out-of-line block (2026-11-12)
+
+**Chosen:** a 64-byte-aligned array of 16-byte slots (4 per cache line). Each occupied slot holds the key's full 64-bit hash and a pointer to one heap block: a 12-byte header, then the key bytes, then the value bytes.
+**Why:**
+- Probing reads only slots, and the stored hash rejects non-matches without following the pointer. Expected cost at 1M keys: about one slot line plus one entry for a hit, and about one slot line for a miss, against 2-4 lines plus the value for `unordered_map` (prediction, B-013).
+- Entries never move, so a `Get` view survives inserts of other keys and growth: **the D-002 guarantee is kept**.
+- Growth and backward-shift deletion use the stored hash and never touch entries.
+- One allocation per entry instead of 2 (libc++) or 3 (libstdc++).
+
+**Rejected:**
+- `std::string` key and value inside slots: 48-64-byte slots, one per line, and views break on growth.
+- A Swiss table with 1-byte tags and SIMD groups: the best follow-up, but two SIMD code paths and no plain baseline yet.
+- Cuckoo hashing: two unrelated cache lines per miss, and inserts can loop.
+- Pointer tagging to fit the hash into 8 bytes: not portable (arm64 top-byte-ignore, pointer authentication, memory tagging).
+
+## D-023: Entry header of three `uint32_t`; in-place overwrite; aliasing-safe copies (2026-11-12)
+
+**Chosen:**
+- Header `{key_size, value_size, value_capacity}` (12 bytes). Keys and values are limited to 4 GiB - 1 bytes; `Put` throws `std::length_error` beyond that.
+- Overwrite in place when the new value fits `value_capacity`; otherwise allocate a new entry, copy, swap the pointer, then free the old one.
+- Copies use `memmove`, because `Put(k, *Get(k))` and `Put(k, Get(k)->substr(n))` are legal and overlap.
+
+**Rejected:** `size_t` sizes (24-byte header for an unrealistic case); always reallocating on overwrite (an allocation per Put, unlike the D-004 baseline).
+**Consequence:** like `std::string`, an entry keeps its largest capacity. That matches the baseline's behaviour.
+
+## D-024: Linear probing (2026-11-12)
+
+**Chosen:** probe `home, home+1, ...` modulo the capacity. Sequential slots share cache lines and the hardware prefetcher follows them, and deletion by backward shift is simple.
+**Rejected:** quadratic probing and double hashing (each step can be a new cache line); Robin Hood for now (the plan's follow-up experiment, which needs this as its baseline).
+**Known cost:** primary clustering. Knuth's estimates for a miss are 2.5 slots at load 0.5, 8.5 at 0.75 and 50.5 at 0.9. This is the reason for D-026's limit and the B-013 load sweep.
+
+## D-025: Power-of-two capacity; home slot = top bits of the hash (2026-11-12)
+
+**Chosen:** `home = hash >> (64 - log2(capacity))`.
+**Why:**
+- A shift instead of a 20-40-cycle `%`.
+- The top bits are the best mixed after multiplication.
+- Independence from routing. Shard = `HashKey % N`, so if the table took the low bits of that same hash, with N = 4 every key in a shard would share 2 low bits and only a quarter of the home slots would be used. The table uses a different hash (D-028) and the high bits.
+
+**Rejected:** `%` with prime capacities (slower); `hash & mask` (low bits).
+
+## D-026: Maximum load factor 0.75 by default, configurable within [0.25, 0.95] (2026-11-12)
+
+**Chosen:** the load is between 0.375 and 0.75 in steady state. The clamp guarantees `growth_limit_ < capacity_`, so at least one slot is empty and every probe loop terminates.
+**Status:** 0.75 is a starting value, not a measured optimum. B-013 sweeps 25/50/75/90% at a fixed capacity of 2^20, and the default changes if the data says so.
+
+## D-027: Deletion by backward shift, no tombstones (2026-11-12)
+
+**Chosen:** Knuth's Algorithm R. From the hole, scan forward until an empty slot. Move an entry into the hole when `((next - home) & mask) >= ((next - hole) & mask)`, that is, when moving it keeps it reachable from its home, and continue from its old position.
+**Rejected:** tombstones. They accumulate and lengthen misses, they need clean-up rehashes, and if inserts never reuse them a churning table can fill with them and a miss never terminates.
+**Tested by:** 3,000 random layouts with chosen home slots, deleting in every order; an all-colliding cluster that wraps past the end; a churn test.
+
+## D-028: `FlatHash`, a word-at-a-time hash separate from the routing hash (2026-11-12)
+
+**Chosen:**
+- Seed xor (length × constant).
+- For each 8-byte word (loaded with `memcpy`, so alignment does not matter): `h = rotl(h ^ word × A, 29) × B`.
+- The tail is zero-padded.
+- Finished with the splitmix64 finalizer.
+
+**Why:**
+- FNV-1a (routing, D-012) costs one dependent multiply per byte.
+- A separate function keeps slot choice independent of shard choice.
+- The length in the seed separates `"a"` from `"a\0"`, which would otherwise always collide.
+- Fixed code keeps probe behaviour identical on both machines. Unlike routing, this is a convenience, not a requirement: the table hash never leaves the process.
+
+**Known weakness, open:** the seed is fixed, so keys chosen by an attacker can all collide (HashDoS). Before serving untrusted clients, use a per-process random seed and a keyed hash such as SipHash.
+**Rejected:** `std::hash` (differs by library, unmeasured quality); reusing `HashKey` (bit correlation, and FNV is byte-at-a-time).
+
+## D-029: Grow by doubling, all at once, never shrink (2026-11-12)
+
+**Chosen:**
+- `Rehash` allocates the new array first (strong exception guarantee), re-places slots by their stored hash without reading any entry, then frees the old array.
+- `Reserve(n)` pre-sizes the table.
+- The empty table allocates nothing; the first `Put` allocates 16 slots.
+
+**Cost:** a stop-the-world pause proportional to the capacity at each doubling, which is a p999 spike for the request that triggers it (size unmeasured).
+**Rejected:** incremental (two-table) resizing as in Redis (both tables checked on every operation); shrinking (no workload needs it).
+
+## D-030: Smaller decisions (alignment, testability, integration) (2026-11-12)
+
+- **Slot array aligned to 64 bytes** (`operator new(size, align_val_t{64})`). With 16-byte slots, no slot straddles a cache line. False sharing inside a table is impossible because only the shard's worker writes it. Alignment keeps two shards' slot arrays on separate lines. Entries come from `malloc` and could in theory share a line across shards; Phase 6 closes this.
+- **The hash is a template parameter** (`BasicFlatStore<Hasher>`, `FlatStore = BasicFlatStore<FlatHash>`), only so tests can force collisions, wrap-around and chosen home slots. `[[no_unique_address]]` makes it free.
+- **Not copyable, not movable.** Nothing needs it, and owning raw memory makes copy and move easy to get wrong.
+- **Integration:**
+  - `BasicShardedStore<QueueT, StoreT = Store>`.
+  - `FlatShardedStore = BasicShardedStore<MpscQueue, FlatStore>` differs from `LockFreeShardedStore` only in the table.
+  - `Store` (Phase 1) is unchanged, so old baselines stay reproducible.
+  - `contention --table=flat` works with `--store=none|sharded|lockfree`.
+- **Tests:** Ratul's 14 Phase 1 `Store` tests are reused unchanged through the D-021 macro trick (`tests/flat_store_suite_test.cpp`). There are 15 new table tests (`tests/flat_store_test.cpp`), including model tests with varied keys of length 0-48 (closing the Phase 1 random-test blind spot), and the 18 sharded-store tests run against `FlatShardedStore` (ctest prefix `flat.`).
+- **Benchmarks:** `bench/table_bench.cpp` adds `TransparentStore` (`unordered_map` with heterogeneous lookup) as a **control**, so the gain from removing D-003's temporary key string is not credited to open addressing. This also closes the D-003 follow-up once B-013 runs. `footprint` takes `map|flat` and now counts aligned `operator new` (the slot array would otherwise be invisible).
+
+---
+
 ## Open questions
 
 - Apple clang is 21.0.0. Whether `std::hardware_destructive_interference_size` is available is still to verify in Phase 5.

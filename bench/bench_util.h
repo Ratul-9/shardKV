@@ -26,23 +26,28 @@ struct XorShift64 {
 
 // Formats key number `i` into `buf` without allocating. Keys are generated on the fly instead of
 // stored in a vector: a precomputed key table would add its own cache misses to every lookup.
-inline std::string_view FormatKey(uint64_t i, char (&buf)[kKeySize]) {
+template <size_t N>
+inline std::string_view FormatKey(uint64_t i, char (&buf)[N]) {
+  static_assert(N >= kKeySize);
   std::memcpy(buf, "key:", 4);
-  for (size_t d = kKeySize; d-- > 4;) {
+  std::memset(buf + 4, '-', N - kKeySize);
+  for (size_t d = N; d-- > N - 12;) {
     buf[d] = static_cast<char>('0' + i % 10);
     i /= 10;
   }
-  return {buf, kKeySize};
+  return {buf, N};
 }
 
+template <size_t N = kValueSize>
 inline std::string_view Value() {
-  static const std::string value(kValueSize, 'v');
+  static const std::string value(N, 'v');
   return value;
 }
 
-inline void Prefill(Store& store, uint64_t n) {
-  char buf[kKeySize];
-  for (uint64_t i = 0; i < n; ++i) store.Put(FormatKey(i, buf), Value());
+template <size_t K = kKeySize, size_t V = kValueSize, typename S>
+inline void Prefill(S& store, uint64_t n) {
+  char buf[K];
+  for (uint64_t i = 0; i < n; ++i) store.Put(FormatKey(i, buf), Value<V>());
 }
 
 }  // namespace lldstore::bench
