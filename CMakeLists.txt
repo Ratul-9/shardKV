@@ -52,7 +52,21 @@ add_library(lldstore_common INTERFACE)
 target_include_directories(lldstore_common INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(lldstore_common INTERFACE lldstore_warnings Threads::Threads)
 
+# Compiled code for Phases 7-11 (WAL, Raft, networking, metrics). Header-only parts stay in
+# lldstore_common.
+add_library(lldstore_core STATIC
+  src/log_file.cpp
+  src/wal.cpp
+  src/durable_store.cpp
+  src/raft.cpp
+  src/linearizability.cpp
+  src/net.cpp
+  src/kv_node.cpp
+  src/kv_client.cpp)
+target_link_libraries(lldstore_core PUBLIC lldstore_common)
+
 enable_testing()
 add_subdirectory(proto)
 add_subdirectory(tests)
 add_subdirectory(bench)
+add_subdirectory(apps)

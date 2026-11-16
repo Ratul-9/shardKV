@@ -201,6 +201,60 @@ The tool prints `shards=N pinned_cpus=...` so each result records the pinning; `
 
 ---
 
+## 3k. Phases 6 to 11: tests, the cluster, chaos, delivery
+
+Nothing in this section has been run yet (2026-11-16). On Linux, do it in the order of `docs/LINUX_RUNBOOK.md`.
+
+**Tests (by phase)**
+
+| What | Command |
+|---|---|
+| Phase 6 allocator, intrusive queue, slab-backed sharded store | `ctest --preset debug -R "SlabAllocator|SlabFlatStore|IntrusiveMpsc|^slab\\."` |
+| Phase 6 proof of zero allocations (skips under sanitizers) | `build/release/tests/zero_alloc_tests` |
+| Phase 7 durability incl. the kill -9 crash test | `ctest --preset debug -R "Crc32c|Codec|LogScan|GroupCommitLog|DurableStore"` |
+| Phase 8 Raft unit tests and simulator | `ctest --preset debug -R "Raft"` |
+| Phase 8 real 3-node cluster over localhost TCP | `ctest --preset debug -R "^Cluster\\."` |
+| Phase 9 epochs and RcuMap (run under tsan AND asan: the naive-free death test needs asan) | `ctest --preset tsan -R "Epoch|RcuMap"` and `ctest --preset asan -R RcuMap` |
+| Phase 10 checker | `ctest --preset debug -R Linearizability` |
+| Phase 10 chaos: 300 simulated runs (slow under tsan) | `ctest --preset release -R Chaos --output-on-failure` |
+| Replay one chaos seed | `LLDSTORE_CHAOS_SEED=42 build/debug/tests/chaos_tests --gtest_filter='*Single*'` |
+
+**A local cluster (release build)**
+
+| What | Command |
+|---|---|
+| Start nodes 1-3 (data in /tmp/lldstore-cluster) | `scripts/cluster_local.sh start` |
+| Who leads? | `scripts/cluster_local.sh status` |
+| Write / read / delete | `build/release/apps/kvctl put k v`, `... get k`, `... del k` |
+| Crash a node (kill -9) / bring it back | `scripts/cluster_local.sh kill 2`, `scripts/cluster_local.sh restart 2` |
+| Metrics of node 1 | `curl -s localhost:9101/metrics` |
+| Throughput (closed loop) | `build/release/apps/kvctl bench --mode=closed --clients=16 --seconds=10` |
+| Latency at a fixed rate (open loop) | `build/release/apps/kvctl bench --mode=open --clients=16 --rate=5000 --seconds=15` |
+| Stop / delete everything | `scripts/cluster_local.sh stop`, `scripts/cluster_local.sh wipe` |
+
+**Chaos and checking**
+
+| What | Command |
+|---|---|
+| History under kill -9, then check | `RUNS=20 scripts/chaos_local.sh 60` |
+| Partitions + netem (Linux, root, edits iptables/tc) | `sudo -E scripts/chaos_partition_linux.sh 120` |
+| Check a saved history | `build/release/apps/lincheck bench/results/chaos/history-....txt` |
+
+**Benchmarks (Linux, release)**
+
+| What | Command |
+|---|---|
+| Phases 6, 7, 9 | `WAL_DIR=$HOME/walbench scripts/bench_phase6_9.sh 3` (WAL_DIR must be on the real disk, not tmpfs) |
+| Cluster on one machine | `scripts/bench_cluster.sh 3` |
+| Everything, one command | `RESULTS_DIR=bench/results/linux PIN_CPUS=0,1,2,3,4,5 WAL_DIR=$HOME/walbench scripts/reproduce_all.sh` |
+
+**Delivery**
+
+| What | Command |
+|---|---|
+| Docker cluster + Prometheus | `docker compose up -d --build`; `docker compose run --rm client status`; http://localhost:9090 |
+| EC2 cluster (costs money; read `deploy/aws/README.md` first) | `deploy/aws/cluster.sh up` ... `deploy/aws/cluster.sh down` |
+
 ## 4. Record a result (project rule: no number without context)
 
 Every measurement that goes into `docs/BENCHMARKS.md` needs hardware, commit, exact command, results and interpretation. Get the pieces:

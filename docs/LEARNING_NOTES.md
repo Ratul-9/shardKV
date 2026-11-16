@@ -324,3 +324,61 @@ Tooling: Docker was installed but its daemon was not running, so a GCC 11 contai
 - Decisions: `docs/DESIGN.md` D-022 to D-030; guide: `docs/PHASE5_DESIGN_GUIDE.md`; drill: `docs/INTERVIEW_NOTES.md` (Phase 5)
 
 (The Phase 5 section is closed with "End of Phase 5" only after the tests and benchmarks have run and the phase is tagged.)
+
+---
+
+## Phases 6 to 11  (WRITTEN BY CLAUDE IN ONE GO, 2026-11-16; built, nothing run; not yet learned)
+
+Ratul asked for the finished product rather than phase by phase. Nothing below has been studied or answered by Ratul yet. Every "What you have shown you know" entry is **[To do]**. The drills (with Claude's model answers) are in `docs/INTERVIEW_NOTES.md`, and the decisions in `docs/DESIGN.md` D-031 to D-066.
+
+### Phase 6: Memory management
+**Topics:** how `malloc` works, free lists and fragmentation (CS:APP §9.9); virtual memory, page faults and RSS vs virtual size (CS:APP §9.1-9.3, §9.8 on `mmap`); size classes and slab allocation (Bonwick, "The Slab Allocator", 1994); thread-local allocation and remote frees (mimalloc and tcmalloc design notes); ASan manual poisoning (`sanitizer/asan_interface.h`).
+**Key insights:**
+- Zero allocations on the hot path is a property you *prove* with a counting `operator new`, and you prove the counter with a control that must allocate.
+- RSS is what the machine pays; requested bytes can mislead in both directions.
+- A per-owner allocator needs no lock only while no other thread ever frees.
+**Code:** `include/lldstore/slab_allocator.h`, `include/lldstore/intrusive_mpsc_queue.h`, `SlabFlatStore` and `SlabShardedStore`, `tests/zero_alloc_test.cpp`, `tests/slab_allocator_test.cpp`.
+**[To do]** Drill Q1-Q5 and the defend-it questions.
+
+### Phase 7: Durability
+**Topics:** the page cache and what `write`, `fsync`, `fdatasync` and `F_FULLFSYNC` guarantee (CS:APP ch. 10; `fsync(2)`); torn writes; write-ahead logging, group commit and checkpoints (*Designing Data-Intensive Applications* ch. 3 and 7; PostgreSQL WAL docs); fsyncgate (PostgreSQL wiki "Fsync Errors", 2018); atomic replace with rename plus a directory fsync; CRC-32C.
+**Key insights:**
+- Acknowledge only after the sync that covers the record. Reads must wait too.
+- Recovery stops at the first bad record. Truncate before appending, durably, so recovery is idempotent.
+- An fsync error is not retryable.
+**Code:** `include/lldstore/log_file.h`, `wal.h`, `durable_store.h`, `crc32c.h`, `codec.h`; `src/log_file.cpp`, `wal.cpp`, `durable_store.cpp`; `tests/durability_test.cpp` (truncation at every byte, bit flips, kill -9 crash test).
+**[To do]** Drill and defend-it questions; then run the crash test many times.
+
+### Phase 8: Replication
+**Topics:** the Raft paper (Ongaro and Ousterhout, 2014) §5 (election, log replication, safety, figure 8) and the thesis ch. 6 (client interaction: sessions, read handling); replication models, failure detection, split brain, CAP and PACELC (*DDIA* ch. 5, 8, 9); deterministic simulation testing (FoundationDB talk "Testing Distributed Systems w/ Deterministic Simulation").
+**Key insights:**
+- Commit means stored on a majority in the leader's own term.
+- Votes and terms must be durable before the reply.
+- Retries need sessions for exactly-once.
+- A deterministic core lets a seed reproduce a bug.
+**Code:** `include/lldstore/raft.h`, `src/raft.cpp`, `kv_command.h`, `kv_node.h` and `src/kv_node.cpp`, `kv_client.h`, `net.h`; `apps/kvnode.cpp`, `apps/kvctl.cpp`; `tests/raft_sim.h`, `tests/raft_test.cpp`, `tests/cluster_test.cpp`.
+**[To do]** Drill and defend-it questions. Draw figure 8 yourself.
+
+### Phase 9: Safe memory reclamation
+**Topics:** epoch-based reclamation (Fraser's thesis, 2004), hazard pointers (Michael, 2004) and RCU (McKenney, *Is Parallel Programming Hard...?* ch. 9); the store-load reordering that only a full fence forbids (*C++ Concurrency in Action* ch. 5); *The Art of Multiprocessor Programming* ch. 10.
+**Key insights:**
+- Unlinking stops new readers, not old ones.
+- An object is freed two epochs after its retirement.
+- A stalled reader stops reclamation but never corrupts anything.
+- Dekker-style store-then-load needs seq_cst fences on both sides.
+**Code:** `include/lldstore/epoch.h`, `include/lldstore/rcu_map.h`, `tests/epoch_test.cpp` (including the ASan death test for naive free), `bench/rcu_bench.cpp`.
+**[To do]** Drill and defend-it questions.
+
+### Phase 10: Correctness and chaos
+**Topics:** linearizability (Herlihy and Wing, 1990); Wing and Gong's checker and Lowe's memoisation; Porcupine and Knossos; Jepsen analyses (jepsen.io), especially how timeouts make operations indeterminate.
+**Key insights:**
+- Test the checker on known-bad histories first.
+- Timed-out operations are unknown, not failed.
+- Many seeds, and assert that the faults happened.
+**Code:** `include/lldstore/linearizability.h`, `src/linearizability.cpp`, `tests/linearizability_test.cpp`, `tests/chaos_test.cpp`, `apps/lincheck.cpp`, `scripts/chaos_local.sh`, `scripts/chaos_partition_linux.sh`.
+**[To do]** Drill and defend-it questions; run the chaos suites and start the bug log.
+
+### Phase 11: Observability and delivery
+**Topics:** percentiles in production and why they do not average (Gil Tene; Prometheus docs on summaries vs histograms); metrics vs logs vs traces; `perf` and flame graphs (Brendan Gregg, *Systems Performance*); Docker multi-stage builds; GitHub Actions; EC2, CloudWatch agent with Prometheus scraping, alarms; cost control by tagging.
+**Code:** `include/lldstore/metrics.h`, the `/metrics` endpoint in `src/kv_node.cpp`, `Dockerfile`, `docker-compose.yml`, `deploy/`, `.github/workflows/ci.yml`, `scripts/reproduce_all.sh`, `README.md`.
+**[To do]** Drill; run `docker compose up` and the AWS steps once (watch the bill).

@@ -8,7 +8,14 @@
 | 3 Sharding and thread-per-core | Implemented and compiled (written by Claude at Ratul's request); **tests and benchmarks NOT run yet**; task list `docs/PHASE3_TASKS.md` | |
 | 4 Lock-free MPSC queue | Implemented and build-checked (written by Claude at Ratul's request); **tests and benchmarks NOT run**; Phase 3 also still unrun | |
 | 5 Cache-conscious hash table | Implemented and built in all five presets (written by Claude at Ratul's request, **code has no comments by request**; commentary in `docs/PHASE5_DESIGN_GUIDE.md`); `flat_store_tests` ran once in debug (29/29) before Ratul asked for no runs; **nothing else run, no benchmark** | |
-| 6-11 | Not started | |
+| 6 Memory management | Built (Claude, at Ratul's request, 2026-11-16); **not run** | |
+| 7 Durability | Built (Claude); **not run** | |
+| 8 Replication (Raft) | Built (Claude); **not run** | |
+| 9 Epoch reclamation | Built (Claude); **not run** | |
+| 10 Correctness and chaos | Built (Claude); **not run** | |
+| 11 Observability and delivery | Built (Claude); Docker, CI and AWS files **never run** | |
+
+**Where things stand (2026-11-16):** all the code exists and builds with `-Werror` in all five presets on the Mac: 245 tests registered, plus `kvnode`, `kvctl`, `lincheck` and the benchmarks. Nothing after Phase 2 has been verified by running it. The ordered list of what to run is `docs/LINUX_RUNBOOK.md`.
 
 ## Phase 0 contents
 - CMake + presets: `debug`, `release`, `asan`, `ubsan`, `tsan` (`cmake --preset X && cmake --build --preset X && ctest --preset X`)
@@ -56,7 +63,38 @@
 - `bench/bench_util.h`: `FormatKey` and `Value` now take a size (16-byte keys and 64-byte values unchanged, so older benchmarks produce identical keys); `Prefill` is generic.
 - Teaching document: `docs/PHASE5_DESIGN_GUIDE.md` (method, decisions, avoided options, risks, exercises).
 
+## Phases 6-11 contents (built, not run; all written by Claude at Ratul's request, 2026-11-16)
+- **Phase 6:**
+  - `slab_allocator.h`: 36 size classes, 256 KiB chunks, ASan poisoning.
+  - `FlatStore` takes an allocator policy, giving `SlabFlatStore`.
+  - `intrusive_mpsc_queue.h` and `SlabShardedStore` (no allocation per request).
+  - Tests: `slab_allocator_tests`, `intrusive_mpsc_queue_tests`, `slab_sharded_store_tests` (prefix `slab.`), `zero_alloc_tests` (counting `operator new`, with a control).
+  - `footprint ... slab`, `contention --store=slab`. D-031 to D-035.
+- **Phase 7:**
+  - `codec.h`, `crc32c.h`, `log_file.h` (framing, fsync / `F_FULLFSYNC`, recovery scan, atomic replace).
+  - `wal.h` (`GroupCommitLog`), `durable_store.h` (WAL + snapshots + recovery).
+  - `durability_tests`: truncation at every byte, bit flips, idempotent recovery, kill -9 crash test.
+  - `bench/wal_bench`. D-036 to D-043.
+- **Phase 8:**
+  - `raft.h` (deterministic `RaftNode`, `MemoryStorage`, `FileStorage`), `kv_command.h` (exactly-once sessions), `net.h`, `kv_protocol.h`, `kv_node.h`, `kv_client.h`.
+  - Programs `kvnode` and `kvctl`.
+  - `raft_tests` (simulator: `tests/raft_sim.h`), `cluster_tests` (3 real nodes over TCP). D-044 to D-054.
+- **Phase 9:** `epoch.h` (EBR), `rcu_map.h` (single writer, lock-free readers, `UnsafeRcuMap` for the naive-free test), `epoch_tests`, `bench/rcu_bench`. D-061 to D-064.
+- **Phase 10:**
+  - `linearizability.h` (Wing and Gong + Lowe memoisation, per key, unknown outcomes), the `lincheck` program, `linearizability_tests`.
+  - `chaos_tests`: 200 runs x 3 nodes and 100 x 5 nodes, seeded and replayable.
+  - `scripts/chaos_local.sh` (kill -9) and `scripts/chaos_partition_linux.sh` (iptables/netem). D-055 to D-058.
+- **Phase 11:**
+  - `metrics.h` and the `/metrics` endpoint.
+  - `Dockerfile`, `docker-compose.yml` (+ Prometheus), `deploy/aws/` (cluster.sh, user-data, CloudWatch agent, alarms).
+  - CI: presets x 2 OSes, benchmark smoke, cluster smoke + chaos, docker.
+  - `scripts/cluster_local.sh`, `bench_cluster.sh`, `bench_phase6_9.sh`, `reproduce_all.sh`; `README.md`. D-060, D-065.
+- **Docs:** D-031 to D-066 in `docs/DESIGN.md`; B-014 to B-019 (PLANNED) in `docs/BENCHMARKS.md`; drills with model answers in `docs/INTERVIEW_NOTES.md`; `docs/LINUX_RUNBOOK.md`.
+
 ## Open issues
+- **Phases 6-11 have never run: no test, no sanitizer run, no benchmark, no GCC 11 build, no Docker build, no CI run, no AWS run.** Follow `docs/LINUX_RUNBOOK.md` top to bottom. Expect bugs; record each one in `docs/DESIGN.md`.
+- **Phases 6-11 were written by Claude, not Ratul** (all their [HAND-WRITE] items). Drills with model answers and defend-it questions are in `docs/INTERVIEW_NOTES.md`; nothing from these phases belongs on a CV until Ratul can explain it unaided (D-059).
+- Known limits by design (D-050, D-034, D-043, D-051): no Raft membership change, log compaction, PreVote or lease reads; slab chunks never returned to the OS; stop-the-world checkpoints; session table never trimmed; RcuMap not integrated into the stores.
 - **Phase 5 tests (except one debug run of `flat_store_tests`), sanitizer runs and benchmarks have not been run** (Ratul asked for no runs). To do: run `flat_store_tests` and `flat_sharded_store_tests` under debug/asan/ubsan/tsan on both machines, then a mutation check (five suggested mutants in the guide, section 4.1), then `scripts/bench_table.sh` and `perf stat` on Linux (B-013).
 - **Phase 5 was written by Claude, not Ratul**, and has no code comments by request. Ratul should work through `docs/PHASE5_DESIGN_GUIDE.md` and its exercises, and the defend-it questions in `docs/INTERVIEW_NOTES.md`.
 - `FlatHash` has a fixed seed: keys chosen by an attacker can all collide (HashDoS). Needs a per-process random seed and a keyed hash before untrusted clients (D-028).

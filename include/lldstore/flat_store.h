@@ -12,6 +12,8 @@
 #include <stdexcept>
 #include <string_view>
 
+#include "lldstore/slab_allocator.h"
+
 namespace lldstore {
 
 struct FlatHash {
@@ -54,7 +56,7 @@ struct FlatHash {
   }
 };
 
-template <typename Hasher>
+template <typename Hasher, typename Alloc = HeapAllocator>
 class BasicFlatStore {
  public:
   static constexpr double kDefaultMaxLoadFactor = 0.75;
@@ -135,6 +137,15 @@ class BasicFlatStore {
     return capacity_ == 0 ? 0.0 : static_cast<double>(size_) / static_cast<double>(capacity_);
   }
 
+  template <typename Fn>
+  void ForEach(Fn&& fn) const {
+    for (size_t i = 0; i < capacity_; ++i) {
+      if (slots_[i].entry != nullptr) fn(slots_[i].entry->Key(), slots_[i].entry->Value());
+    }
+  }
+
+  const Alloc& allocator() const noexcept { return alloc_; }
+
  private:
   struct Entry {
     uint32_t key_size;
@@ -213,17 +224,22 @@ class BasicFlatStore {
     if (slots != nullptr) ::operator delete(slots, std::align_val_t{kCacheLine});
   }
 
-  static Entry* MakeEntry(std::string_view key, std::string_view value) {
-    void* raw = ::operator new(sizeof(Entry) + key.size() + value.size());
+  Entry* MakeEntry(std::string_view key, std::string_view value) {
+    const size_t usable = Alloc::UsableSize(sizeof(Entry) + key.size() + value.size());
+    const size_t spare = std::min<size_t>(usable - sizeof(Entry) - key.size(),
+                                          std::numeric_limits<uint32_t>::max());
+    void* raw = alloc_.Allocate(sizeof(Entry) + key.size() + spare);
     Entry* entry = ::new (raw) Entry{static_cast<uint32_t>(key.size()),
                                      static_cast<uint32_t>(value.size()),
-                                     static_cast<uint32_t>(value.size())};
+                                     static_cast<uint32_t>(spare)};
     CopyBytes(entry->KeyData(), key);
     CopyBytes(entry->ValueData(), value);
     return entry;
   }
 
-  static void FreeEntry(Entry* entry) noexcept { ::operator delete(entry); }
+  void FreeEntry(Entry* entry) noexcept {
+    alloc_.Deallocate(entry, sizeof(Entry) + entry->key_size + entry->value_capacity);
+  }
 
   static void CopyBytes(char* destination, std::string_view source) noexcept {
     if (!source.empty()) std::memmove(destination, source.data(), source.size());
@@ -243,8 +259,10 @@ class BasicFlatStore {
   unsigned shift_ = 64;
   double max_load_factor_ = kDefaultMaxLoadFactor;
   [[no_unique_address]] Hasher hasher_;
+  [[no_unique_address]] Alloc alloc_;
 };
 
 using FlatStore = BasicFlatStore<FlatHash>;
+using SlabFlatStore = BasicFlatStore<FlatHash, SlabAllocator>;
 
 }

@@ -1,0 +1,25 @@
+{
+  "logs": {
+    "metrics_collected": {
+      "prometheus": {
+        "prometheus_config_path": "/opt/aws/amazon-cloudwatch-agent/etc/prometheus.yaml",
+        "emf_processor": {
+          "metric_declaration_dedup": true,
+          "metric_namespace": "lldstore",
+          "metric_declaration": [
+            {
+              "source_labels": ["job"],
+              "label_matcher": "^lldstore$",
+              "dimensions": [["instance"]],
+              "metric_selectors": [
+                "^lldstore_raft_term$", "^lldstore_raft_role$", "^lldstore_raft_commit_index$",
+                "^lldstore_raft_elections_started$", "^lldstore_requests_total$",
+                "^lldstore_request_latency_ns$", "^lldstore_raft_append_latency_ns$"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

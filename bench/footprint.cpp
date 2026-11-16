@@ -1,5 +1,7 @@
 // Memory footprint of the store: bytes requested from operator new, and process RSS.
-// Usage: footprint [num_keys=1000000] [map|flat]
+// Usage: footprint [num_keys=1000000] [map|flat|slab]
+//   slab = FlatStore with the Phase 6 SlabAllocator: entries come from 256 KiB chunks, so
+//   "requested bytes" counts chunks (reserved memory), and the slab's own stats are printed too.
 //
 // Replaces global operator new/delete with counting versions. Each block carries a 16-byte header
 // holding its size so delete can subtract it. This counts *requested* bytes; the allocator adds its
@@ -109,6 +111,14 @@ int Measure(const char* table, uint64_t n) {
               requested / payload,
               static_cast<double>(g_alloc_count - allocs_before) / entries);
   std::printf("RSS delta/entry=%.1f B (overhead %.2fx)\n", rss, rss / payload);
+  if constexpr (requires { store.allocator().stats(); }) {
+    const auto& st = store.allocator().stats();
+    std::printf("slab: requested/entry=%.1f B  class-rounded/entry=%.1f B  reserved/entry=%.1f B  "
+                "chunks=%zu\n",
+                static_cast<double>(st.requested_bytes) / entries,
+                static_cast<double>(st.allocated_bytes) / entries,
+                static_cast<double>(st.reserved_bytes) / entries, st.chunks);
+  }
   return 0;
 }
 
@@ -117,6 +127,7 @@ int main(int argc, char** argv) {
   const char* table = argc > 2 ? argv[2] : "map";
   if (std::strcmp(table, "map") == 0) return Measure<lldstore::Store>(table, n);
   if (std::strcmp(table, "flat") == 0) return Measure<lldstore::FlatStore>(table, n);
-  std::fprintf(stderr, "table must be map or flat\n");
+  if (std::strcmp(table, "slab") == 0) return Measure<lldstore::SlabFlatStore>(table, n);
+  std::fprintf(stderr, "table must be map, flat or slab\n");
   return 2;
 }

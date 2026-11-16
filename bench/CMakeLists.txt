@@ -24,3 +24,11 @@ if(LLDSTORE_HAVE_GRPC)
   add_executable(kv_client kv_client.cpp)
   target_link_libraries(kv_client PRIVATE lldstore_common lldstore_proto benchmark::benchmark)
 endif()
+
+# Phase 7: group commit on the real disk
+add_executable(wal_bench wal_bench.cpp)
+target_link_libraries(wal_bench PRIVATE lldstore_core)
+
+# Phase 9: lock-free reads with epoch reclamation vs reader-writer locks
+add_executable(rcu_bench rcu_bench.cpp)
+target_link_libraries(rcu_bench PRIVATE lldstore_common)

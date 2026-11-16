@@ -44,3 +44,50 @@ gtest_discover_tests(flat_store_tests)
 add_executable(flat_sharded_store_tests flat_sharded_store_test.cpp)
 target_link_libraries(flat_sharded_store_tests PRIVATE lldstore_common GTest::gtest_main)
 gtest_discover_tests(flat_sharded_store_tests TEST_PREFIX "flat.")
+
+# Phase 6: memory management
+add_executable(slab_allocator_tests slab_allocator_test.cpp)
+target_link_libraries(slab_allocator_tests PRIVATE lldstore_common GTest::gtest_main)
+gtest_discover_tests(slab_allocator_tests)
+
+add_executable(intrusive_mpsc_queue_tests intrusive_mpsc_queue_test.cpp)
+target_link_libraries(intrusive_mpsc_queue_tests PRIVATE lldstore_common GTest::gtest_main)
+gtest_discover_tests(intrusive_mpsc_queue_tests)
+
+add_executable(slab_sharded_store_tests slab_sharded_store_test.cpp)
+target_link_libraries(slab_sharded_store_tests PRIVATE lldstore_common GTest::gtest_main)
+gtest_discover_tests(slab_sharded_store_tests TEST_PREFIX "slab.")
+
+# Replaces global operator new, so it is a separate executable.
+add_executable(zero_alloc_tests zero_alloc_test.cpp)
+target_link_libraries(zero_alloc_tests PRIVATE lldstore_common GTest::gtest_main)
+gtest_discover_tests(zero_alloc_tests)
+
+# Phase 7: durability
+add_executable(durability_tests durability_test.cpp)
+target_link_libraries(durability_tests PRIVATE lldstore_core GTest::gtest_main)
+gtest_discover_tests(durability_tests)
+
+# Phase 8: replication (Raft) in the deterministic simulator
+add_executable(raft_tests raft_test.cpp)
+target_link_libraries(raft_tests PRIVATE lldstore_core GTest::gtest_main)
+gtest_discover_tests(raft_tests)
+
+# Phase 10: linearizability checker and chaos runs
+add_executable(linearizability_tests linearizability_test.cpp)
+target_link_libraries(linearizability_tests PRIVATE lldstore_core GTest::gtest_main)
+gtest_discover_tests(linearizability_tests)
+
+add_executable(chaos_tests chaos_test.cpp)
+target_link_libraries(chaos_tests PRIVATE lldstore_core GTest::gtest_main)
+gtest_discover_tests(chaos_tests PROPERTIES TIMEOUT 1800)
+
+# Phase 8 end to end: three KvNodes over localhost TCP
+add_executable(cluster_tests cluster_test.cpp)
+target_link_libraries(cluster_tests PRIVATE lldstore_core GTest::gtest_main)
+gtest_discover_tests(cluster_tests PROPERTIES RUN_SERIAL TRUE)
+
+# Phase 9: epoch-based reclamation
+add_executable(epoch_tests epoch_test.cpp)
+target_link_libraries(epoch_tests PRIVATE lldstore_common GTest::gtest_main)
+gtest_discover_tests(epoch_tests)

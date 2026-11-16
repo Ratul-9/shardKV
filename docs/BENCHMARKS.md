@@ -379,6 +379,46 @@ Throughput in ops/s, median of 3 (min-max):
 
 ---
 
+## B-014 (PLANNED, not measured): Phase 6 footprint, slab vs heap entries
+
+- **Command:** `build/release/bench/footprint 1000000 map|flat|slab` (part of `scripts/bench_phase6_9.sh`), Ubuntu desktop, release.
+- **Report:** requested bytes per entry, RSS delta per entry, and for slab the slab's own requested / class-rounded / reserved bytes per entry.
+- **Predictions:** the slab's RSS per entry is lower than `flat` with glibc malloc, because there is no 16 B per-block malloc header and a 92 B entry fits a 96 B class. Its *requested* bytes are higher, because whole 256 KiB chunks are counted. The comparison that matters is RSS.
+
+## B-015 (PLANNED, not measured): Phase 6 request path without allocation
+
+- **Command:** `contention --store=slab` vs `contention --store=lockfree --table=flat`, 6 pinned shards, 1/4/12/64 clients closed loop and 200K/1M ops/s open loop (`scripts/bench_phase6_9.sh`).
+- **Correctness first:** `zero_alloc_tests` must report 0 allocations for `SlabShardedStore` before the numbers mean anything.
+- **Predictions:** throughput gains are small at low client counts, where the hand-off and wake-up dominate. p99 improves more than p50, because malloc's occasional slow path disappears. The change mixes two effects (intrusive queue and slab entries); if the result is surprising, measure them separately.
+
+## B-016 (PLANNED, not measured): Phase 7 group commit and the cost of fsync
+
+- **Command:** `build/release/bench/wal_bench --dir=$WAL_DIR --sync=data` with writers 1 to 32, again with `--delay-us=200`, and `--sync=none` for comparison. Record `findmnt -T $WAL_DIR`: `/tmp` may be tmpfs, where fsync is free and the result meaningless.
+- **Report:** acknowledged writes/s, syncs/s, records per sync, mean sync time.
+- **Predictions:** with 1 writer, throughput is about 1 / (fdatasync latency): around 1 to 5K/s on a consumer NVMe, depending on whether its cache is honoured. Records per sync grow roughly with the writer count, so acknowledged writes/s grow almost linearly until the write bandwidth or the mutex limits it. On macOS, `F_FULLFSYNC` is far slower than Linux fdatasync. Never compare the two machines' fsync numbers.
+
+## B-017 (PLANNED, not measured): Phase 9 readers under one writer
+
+- **Command:** `build/release/bench/rcu_bench --map=rcu|shared|mutex --readers=1,2,4,8 --writer=1` (`scripts/bench_phase6_9.sh`).
+- **Predictions:** RCU reads scale almost linearly with readers, because readers write only their own slot's cache line. `shared_mutex` reads do not scale, because every reader writes the shared reader count (Phase 2's lesson). The writer is slower with RCU, because every update allocates a node and retires the old one. Readers with RCU also pay for the guard's seq_cst fence.
+
+## B-018 (PLANNED, not measured): Phase 8 cluster throughput, latency and failover
+
+- **Command:** `scripts/bench_cluster.sh 3`: 3 kvnodes and the load generator on ONE machine. They share its cores, so these are single-host numbers. Closed loop with 1/4/16/64 clients, `sync=data` and `sync=none`; open loop at 1K/5K/20K ops/s with 16 clients; failover time (kill -9 the leader, poll until a new leader answers) 15 times.
+- **Predictions:**
+  - With sync=data, throughput is bound by fsync: every proposal batch costs a leader fsync plus follower fsyncs in parallel, so batching (D-054) is what makes many clients faster than one.
+  - Reads cost the same as writes, because every read goes through the log (D-050).
+  - Failover takes roughly the election timeout (150 to 300 ms) plus a round trip, plus the client's own retry delay.
+- **The EC2 version:** `deploy/aws/cluster.sh bench`, with the load generator on its own instance.
+
+## B-019 (PLANNED, not measured): Phase 10 correctness runs
+
+- **Commands:** `ctest --preset debug -R Chaos` (300 simulated runs), `RUNS=20 scripts/chaos_local.sh 60` (kill -9 on real processes), and on Linux as root `scripts/chaos_partition_linux.sh 120` (partitions plus netem).
+- **Report:** runs, operations, operations with unknown outcome, faults injected, violations. Every violation is written up in `docs/DESIGN.md` with its cause, and its history file is kept.
+- **The expectation, stated honestly:** the first runs of a new consensus implementation usually find bugs. A clean first run is a reason to check that the faults really fired (the chaos test asserts this) and that the checker rejects bad histories (tested).
+
+---
+
 ## Not yet measured / known limits
 - In-process closed and open loop are now measured on Linux (B-005 and B-006 Linux subsections, 2026-11-04) and the `shared_mutex` result reverses there. Still missing on Linux: the gRPC runs (the Ubuntu gRPC 1.30 is too old for the callback API), `perf` counters, the CPU governor/turbo state, the SMT sibling map and core pinning. Why libstdc++'s `shared_mutex` is cheaper than libc++'s here is undiagnosed.
 - gRPC open-loop latency with 4 or more clients grows with the client count for an undiagnosed reason (B-008, B-010). Client and server share one machine and one set of cores; a separate client machine is needed for clean multi-client latency.

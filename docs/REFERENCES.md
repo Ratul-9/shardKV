@@ -126,3 +126,54 @@ CS:APP = Bryant & O'Hallaron, *Computer Systems: A Programmer's Perspective*, 3r
 - Allocator size classes, requested bytes vs RSS — CS:APP §9.9 (dynamic memory allocation)
 - `perf stat` hardware counters (cache-misses, LLC-load-misses, dTLB-load-misses) — `perf-stat(1)`; Brendan Gregg, *Systems Performance*; not in CS:APP
 - Design method: cost models before code, controls in benchmarks — `docs/PHASE5_DESIGN_GUIDE.md`; Jeff Dean, "Latency numbers every programmer should know" (orders of magnitude only)
+
+## Phase 6: Memory management
+
+- Dynamic memory allocation, free lists, fragmentation — CS:APP §9.9
+- Virtual memory, page faults, RSS vs virtual size, `mmap` — CS:APP §9.1-9.3, §9.8
+- Slab allocation and size classes — Bonwick, "The Slab Allocator: An Object-Caching Kernel Memory Allocator" (USENIX 1994); not in CS:APP
+- Thread-local caches and remote frees — mimalloc technical report (Leijen et al., 2019); tcmalloc design doc
+- Proving zero allocations with a counting `operator new` — cppreference "Replacement allocation functions"
+- ASan manual poisoning for custom allocators — Clang AddressSanitizer docs (`ASAN_POISON_MEMORY_REGION`)
+- Intrusive MPSC queue — Vyukov, 1024cores.net "Intrusive MPSC node-based queue"
+
+## Phase 7: Durability
+
+- Unix I/O, `write`, file metadata — CS:APP ch. 10; Linux man pages `write(2)`, `fsync(2)`, `fdatasync(2)`, `rename(2)`
+- What fsync does and does not guarantee; directory fsync — Pillai et al., "All File Systems Are Not Created Equal" (OSDI 2014)
+- fsync errors are not retryable — PostgreSQL wiki "Fsync Errors" (2018); LWN "PostgreSQL's fsync() surprise"
+- macOS `F_FULLFSYNC` — Apple `fcntl(2)` man page
+- Write-ahead logging, checkpoints, group commit — *Designing Data-Intensive Applications* ch. 3 and 7; PostgreSQL documentation "Write-Ahead Logging"
+- CRC-32C — RFC 3720 appendix B.4 (iSCSI); LevelDB log format doc
+
+## Phase 8: Replication
+
+- Raft — Ongaro and Ousterhout, "In Search of an Understandable Consensus Algorithm" (USENIX ATC 2014), especially §5 and figure 8; Ongaro's thesis ch. 6 (client sessions) and §9.6 (PreVote); raft.github.io visualisation
+- Check-quorum, PreVote, leader leases — etcd/raft README and design docs
+- Replication, failure detection, split brain, CAP/PACELC — *DDIA* ch. 5, 8, 9
+- Deterministic simulation testing — FoundationDB, "Testing Distributed Systems w/ Deterministic Simulation" (Will Wilson, Strange Loop 2014)
+- TCP framing, Nagle's algorithm, `SIGPIPE` — CS:APP ch. 11; `tcp(7)`, `send(2)`
+
+## Phase 9: Safe memory reclamation
+
+- Epoch-based reclamation — Fraser, "Practical Lock-Freedom" (PhD thesis, Cambridge, 2004)
+- Hazard pointers — Michael, "Hazard Pointers: Safe Memory Reclamation for Lock-Free Objects" (IEEE TPDS 2004)
+- RCU — McKenney, *Is Parallel Programming Hard, And, If So, What Can You Do About It?* ch. 9
+- Memory reclamation in lock-free structures — *The Art of Multiprocessor Programming* ch. 10; *C++ Concurrency in Action* §7.2
+- Store-load reordering and seq_cst fences — *C++ Concurrency in Action* ch. 5; Preshing, "Memory Reordering Caught in the Act"
+
+## Phase 10: Correctness
+
+- Linearizability — Herlihy and Wing, "Linearizability: A Correctness Condition for Concurrent Objects" (TOPLAS 1990)
+- Checking linearizability — Wing and Gong (1993); Lowe, "Testing for Linearizability" (2017); Porcupine (github.com/anishathalye/porcupine); Knossos
+- Jepsen analyses and indeterminate operations — jepsen.io
+- Network fault injection on Linux — `iptables(8)`, `tc-netem(8)`
+
+## Phase 11: Observability and delivery
+
+- Percentiles and why they do not average — Gil Tene, "How NOT to Measure Latency"; Prometheus docs "Histograms and summaries"
+- Prometheus text exposition format — prometheus.io docs
+- `perf` and flame graphs — Brendan Gregg, *Systems Performance* (2nd ed.) ch. 6 and 13
+- Docker multi-stage builds — Docker documentation
+- GitHub Actions — GitHub documentation
+- EC2, CloudWatch agent Prometheus scraping, alarms — AWS documentation

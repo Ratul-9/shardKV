@@ -1,0 +1,44 @@
+# A 3-node lldstore cluster on one machine, plus Prometheus scraping each node's /metrics.
+#   docker compose up -d --build
+#   docker compose run --rm client status
+#   docker compose run --rm client put hello world
+#   docker compose stop node1        # kill the leader (or any node) and watch failover
+#   open http://localhost:9090        # Prometheus: lldstore_raft_term, lldstore_request_latency_ns, ...
+x-node: &node
+  build: .
+  image: lldstore:latest
+  restart: unless-stopped
+  stop_grace_period: 5s
+
+services:
+  node1:
+    <<: *node
+    command: [--id=1, --raft=1=node1:7001,2=node2:7001,3=node3:7001, --client=1=node1:8001,2=node2:8001,3=node3:8001,
+              --data=/data, --metrics=node1:9101, --listen-host=0.0.0.0]
+    volumes: [node1-data:/data]
+    ports: ["8001:8001", "9101:9101"]
+  node2:
+    <<: *node
+    command: [--id=2, --raft=1=node1:7001,2=node2:7001,3=node3:7001, --client=1=node1:8001,2=node2:8001,3=node3:8001,
+              --data=/data, --metrics=node2:9101, --listen-host=0.0.0.0]
+    volumes: [node2-data:/data]
+    ports: ["8002:8001", "9102:9101"]
+  node3:
+    <<: *node
+    command: [--id=3, --raft=1=node1:7001,2=node2:7001,3=node3:7001, --client=1=node1:8001,2=node2:8001,3=node3:8001,
+              --data=/data, --metrics=node3:9101, --listen-host=0.0.0.0]
+    volumes: [node3-data:/data]
+    ports: ["8003:8001", "9103:9101"]
+  client:
+    image: lldstore:latest
+    profiles: [tools]
+    entrypoint: [kvctl, --servers=node1:8001,node2:8001,node3:8001]
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    volumes: [./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro]
+    ports: ["9090:9090"]
+
+volumes:
+  node1-data:
+  node2-data:
+  node3-data:

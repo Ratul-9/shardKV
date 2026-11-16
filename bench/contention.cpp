@@ -2,12 +2,14 @@
 // (no network). Isolates the cost of the synchronisation from gRPC overhead: N client threads call
 // the store directly.
 //
-// Usage: contention [--store=none|mutex|shared|sharded|lockfree] [--clients=N] [--mode=open|closed]
+// Usage: contention [--store=none|mutex|shared|sharded|lockfree|slab] [--clients=N] [--mode=open|closed]
 //                   [--rate=OPS_PER_SEC_TOTAL] [--seconds=S] [--warmup=S] [--keys=K] [--read-pct=P]
 //                   [--shards=N] [--pin=CPU,CPU,...] [--table=map|flat]
 //   --mode=closed  maximum throughput (ops/s); no latency is reported
 //   --mode=open    latency percentiles at a fixed offered rate (coordinated-omission safe)
 //   --store=none   the bare single-threaded Store, valid only with --clients=1 (the reference)
+//   --store=slab     SlabShardedStore (Phase 6): intrusive MPSC queue + slab-backed FlatStore; no heap
+//                    allocation per request. Ignores --table.
 //   --store=lockfree LockFreeShardedStore: same as sharded but with the Phase 4 lock-free MPSC queue
 //                    in front of each shard (unbounded, no backpressure); same --shards and --pin
 //   --store=sharded  ShardedStore with --shards worker threads (default 4); --pin pins shard i to
@@ -224,6 +226,12 @@ int main(int argc, char** argv) {
   if (o.store == "shared") {
     SharedMutexStore s;
     return Run(s, o);
+  }
+  if (o.store == "slab") {
+    ShardedStoreOptions so;
+    so.num_shards = static_cast<size_t>(o.shards);
+    so.pin_cpus = o.pin_cpus;
+    return RunSharded<SlabShardedStore>(so, o);
   }
   if (o.store == "sharded" || o.store == "lockfree") {
     ShardedStoreOptions so;

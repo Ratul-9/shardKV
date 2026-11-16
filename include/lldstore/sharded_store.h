@@ -23,6 +23,7 @@
 
 #include "lldstore/bounded_queue.h"
 #include "lldstore/flat_store.h"
+#include "lldstore/intrusive_mpsc_queue.h"
 #include "lldstore/mpsc_queue.h"
 #include "lldstore/store.h"
 
@@ -193,6 +194,9 @@ class BasicShardedStore {
     std::string* out = nullptr;  // Get: where the worker copies the value
     bool ok = false;             // Get: found. Delete: existed.
     size_t size = 0;             // Size: that shard's entry count
+    // The link IntrusiveMpscQueue threads through the request itself (Phase 6, D-035), so that
+    // queue never allocates. Unused by the other queues.
+    std::atomic<Request*> queue_next{nullptr};
 
     void Wait() {
       std::unique_lock<std::mutex> lock(mutex_);
@@ -303,5 +307,8 @@ using ShardedStore = BasicShardedStore<BoundedQueue>;
 // Phase 4: lock-free MPSC queue per shard (D-018 to D-021). Identical in every other way.
 using LockFreeShardedStore = BasicShardedStore<MpscQueue>;
 using FlatShardedStore = BasicShardedStore<MpscQueue, FlatStore>;
+// Phase 6: no heap allocation on the request path. The queue link lives in the caller's stack
+// Request (IntrusiveMpscQueue) and entries come from the shard's own slab (SlabFlatStore).
+using SlabShardedStore = BasicShardedStore<IntrusiveMpscQueue, SlabFlatStore>;
 
 }  // namespace lldstore

@@ -258,5 +258,5 @@ Each phase below lists: goal, what to build, what to study first, decisions to r
 | 0 | Done, tag `phase-0-done` |
 | 1 | Done, tag `phase-1-done` |
 | 2 | Done, tag `phase-2-done` |
-| 3 | Written and compiled; tests and benchmarks not run yet |
-| 4 to 11 | Not started |
+| 3 to 5 | Written by Claude, built; tests and benchmarks not run (one debug run of the Phase 5 table tests) |
+| 6 to 11 | Written by Claude in one go (2026-11-16), built in all five presets on the Mac; nothing run. Runbook: `docs/LINUX_RUNBOOK.md` |

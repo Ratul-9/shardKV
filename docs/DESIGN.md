@@ -422,6 +422,228 @@ Written by Claude at Ratul's request. **Ratul: draw these edges yourself until y
 
 ---
 
+## Phases 6 to 11: written by Claude at Ratul's request (2026-11-16)
+
+Ratul asked for "the finished product, not phase by phase". Every decision below was made by Claude; the [HAND-WRITE] items of these phases (slab allocator, log writer and recovery, replication and election, epoch manager) are not Ratul's work. **Status for all of D-031 to D-066: built with `-Werror` in all five presets on the Mac (Apple clang 21, arm64). No test and no benchmark from these phases has been run, and GCC 11 has not compiled them.** The first runs are listed in `docs/LINUX_RUNBOOK.md`.
+
+---
+
+## D-031: Slab allocator size classes (2026-11-16)
+
+**Chosen:** `SlabAllocator` (`include/lldstore/slab_allocator.h`), 36 classes from 16 B to 16 KiB: 16-byte steps up to 128 B, then 4 classes per power of two (160, 192, 224, 256, 320, ...). Worst-case internal waste is 25% above 128 B and below 16 B per block below it. Larger requests go to `operator new` directly.
+**Why:** a FlatStore entry is 12 B of header + key + value. 16 + 64 B (the benchmark's key and value) = 92 B, which goes in the 96 B class. Power-of-two classes alone would put it in 128 B (+39%).
+**Rejected:** exact-size free lists (unbounded number of lists); power-of-two only (waste up to 50%); jemalloc/tcmalloc (would hide exactly what this phase is meant to teach).
+**FlatStore change:** `BasicFlatStore<Hasher, Alloc>` asks the allocator for `UsableSize` and records the spare bytes as `value_capacity`, so an overwrite with a slightly longer value reuses the block instead of reallocating.
+
+## D-032: ASan poisoning of free slab blocks (2026-11-16)
+
+**Chosen:** freed blocks and untouched chunk space are poisoned with `ASAN_POISON_MEMORY_REGION` (when built with ASan), unpoisoned on allocation.
+**Why:** to ASan, a slab block is a piece of a live 256 KiB chunk. Without poisoning, a use-after-free inside the slab is invisible to the sanitizer the project relies on. This is the "custom allocators need annotations" item in `docs/PHASES.md`.
+
+## D-033: One allocator per shard, single-threaded, no cross-thread free (2026-11-16)
+
+**Chosen:** the allocator lives inside the shard's `FlatStore`, so only that shard's worker thread allocates or frees. No lock, no atomic.
+**Why it is safe here:** a Get copies the value into the caller's string before the reply (D-002), so no other thread ever holds a pointer into a shard's memory.
+**The trap avoided:** if another thread could free a block (e.g. the caller freeing a returned buffer), the free list would need a lock or a remote-free queue (as mimalloc and tcmalloc have). Using this allocator from two threads is undefined behaviour, and nothing in the code checks for it.
+
+## D-034: Chunks are kept until the store is destroyed (2026-11-16)
+
+**Chosen:** freed blocks go back on their class's free list; chunks are never returned to the OS.
+**Cost:** a shard that grows to 10 GiB and shrinks keeps 10 GiB resident. Fragmentation across classes is also permanent: free 96 B blocks cannot serve a 160 B request.
+**Rejected for now:** per-chunk live counts and `madvise(MADV_DONTNEED)` on empty chunks (more bookkeeping on every free; unmeasured need).
+
+## D-035: Intrusive MPSC queue for zero-allocation requests (2026-11-16)
+
+**Chosen:** `IntrusiveMpscQueue<T*>`, Vyukov's intrusive version: the link is `Request::queue_next`, a field of the request itself, so a push allocates nothing. `SlabShardedStore = BasicShardedStore<IntrusiveMpscQueue, SlabFlatStore>`.
+**Why:** D-018 (Phase 4) allocated one node per push. With the slab, that node was the last heap allocation on the request path.
+**Algorithm detail to defend:** the queue owns a stub node. When the consumer reaches the last real item, it pushes the stub back behind that item, so it can hand the item out without the list becoming empty. That is safe because the only thread that ever writes `stub->queue_next` is the producer that got the stub from its exchange, and the consumer only re-links the stub after it has skipped past it.
+**Proof of "zero allocations":** `tests/zero_alloc_test.cpp` replaces global `operator new` with a counter and asserts 0 allocations across 4 threads x 20,000 mixed requests on a warmed-up `SlabShardedStore`. As a control, it asserts at least one allocation per request on `FlatShardedStore`, so a broken counter cannot pass silently. The test skips under sanitizers, which own `operator new`.
+
+## D-036: One little-endian codec for disk and network (2026-11-16)
+
+**Chosen:** `ByteWriter`/`ByteReader` (`include/lldstore/codec.h`): fixed-width little-endian integers written byte by byte, and length-prefixed strings. Every read is bounds-checked and the reader stays failed after the first error.
+**Rejected:** Protobuf for the cluster protocol (gRPC 1.30 on Ubuntu 22.04 is too old for the callback API anyway, D-011); `memcpy` of structs (padding and byte order are machine-specific).
+
+## D-037: Record framing and CRC-32C (2026-11-16)
+
+**Chosen:** `[u32 length][u32 crc32c(length bytes + payload)][payload]`.
+**Why the CRC covers the length:** a flipped bit in the length would otherwise make the reader frame garbage as a record, and a CRC over the payload alone could then match by accident.
+**Why CRC-32C:** it is the checksum ext4, iSCSI and RocksDB use, and it has a hardware instruction (SSE4.2, ARMv8). It is table-driven here, and the speed difference is unmeasured.
+**Limit:** lengths above 64 MiB are treated as corruption, so a damaged length cannot trigger a 4 GiB allocation.
+
+## D-038: Recovery stops at the first invalid record (2026-11-16)
+
+**Chosen:** replay from the start and stop at the first record that is incomplete, fails its CRC or does not decode. Truncate the file there (durably) before appending again.
+**Why not skip it and continue:** records are appended in order and acknowledged only after the sync that covers them. A torn record can only be the unacknowledged tail. A valid-looking record after a bad one means the disk reordered writes, or the bytes are garbage, and it was never acknowledged in either case. Skipping could resurrect a write that a client was told failed, or apply records out of order.
+**Idempotence:** the truncation is synced before anything new is written, so recovering twice gives the same state (tested).
+
+## D-039: Atomic file replacement (2026-11-16)
+
+**Chosen:** write `path.tmp`, fsync it, `rename` over `path`, fsync the directory. Used for snapshots and for Raft's term/vote file.
+**Why each step:** if you rename before syncing the data, a crash can leave the new name pointing to empty or partial data (ext4's delayed allocation is the classic case). If you skip the directory fsync, the rename itself may not survive a crash.
+
+## D-040: Group commit with an optional batching window (2026-11-16)
+
+**Chosen:** `GroupCommitLog`. Writers frame their record into a shared buffer under a mutex and get a ticket. One flusher thread swaps the buffer out, does `write` + `fdatasync`, and publishes the highest durable ticket. `WaitDurable(ticket)` blocks until it is covered.
+**Why it helps:** fsync costs the same whether it covers 1 record or 100, so N concurrent writers share one sync. Batches form on their own even with no delay, because whatever arrives during a sync goes into the next batch. `max_batch_delay` trades latency at low load for larger batches; it defaults to 0.
+**macOS:** `fsync` does not flush the drive's cache there; `F_FULLFSYNC` is used (with a fallback).
+**Measured?** No. `bench/wal_bench` and B-016 are the plan.
+
+## D-041: An fsync error is fatal for the log (2026-11-16)
+
+**Chosen:** after any failed write or sync, the log is permanently failed. All waiters and all later appends throw, and the process must restart and recover from disk.
+**Why:** after a failed fsync, Linux may have dropped the dirty pages and cleared the error, so a retried fsync can "succeed" without the data on disk (the 2018 PostgreSQL "fsyncgate"). Retrying is not safe.
+
+## D-042: DurableStore acknowledgement and read rules (2026-11-16)
+
+**Chosen:** a write is (1) appended to the log, (2) applied to memory, both under one mutex, then (3) the caller waits for durability outside the mutex and only then returns.
+**Reads also wait:** a `Get` (and a `Delete` that finds nothing) waits until the last write applied before it is durable. Otherwise a reader could see a value that a crash then erases, so it would observe something that "never happened".
+**Rejected:** applying after the sync (memory would lag the log, and a reader would not see its own acknowledged write until the flusher thread applied it).
+
+## D-043: Checkpoints: stop-the-world, in a crash-safe order (2026-11-16)
+
+**Chosen:** while holding the store's mutex, wait for the log to be durable, write the snapshot atomically (D-039, holding `next_generation`), open the new log `wal-<next>.log`, then delete the older logs and sync the directory. Recovery loads the snapshot, replays logs from `next_generation` on, and deletes older ones.
+**Crash at any step:** before the rename, the old snapshot and old logs are complete. After the rename but before the new log exists, the snapshot covers everything and a new log is created. Old logs left behind are deleted at the next recovery.
+**Cost:** every operation pauses for the snapshot write (unmeasured). A fuzzy checkpoint (snapshot while writes continue, then replay from the snapshot's start position) is possible because Put/Delete are blind writes whose replay is idempotent. Not built; RcuMap (D-064) would provide the concurrent read it needs.
+
+## D-044: RaftNode is a deterministic state machine (2026-11-16)
+
+**Chosen:** `RaftNode` has no threads, clock or sockets. Inputs are `Tick()`, `Step(message)` and `Propose(commands)`. Outputs are `TakeMessages()` and `TakeCommitted()`. The same object runs in the simulator (`tests/raft_sim.h`) and in the server (`src/kv_node.cpp`).
+**Why:** distributed bugs depend on timing. A deterministic core plus a seeded simulator turns "flaky once a week" into "seed 1234 fails every time".
+**Persistence rule:** every Storage call is durable when it returns. Messages that depend on it (a vote, an append acknowledgement) are produced afterwards, so they cannot be sent before the state they claim is on disk.
+
+## D-045: What "committed" means (2026-11-16)
+
+An entry is committed when the leader of its term has it stored on a majority (itself included), counted only for entries of the leader's current term (Raft paper, figure 8). Earlier-term entries become committed when a current-term entry above them commits. Clients are answered only after the entry commits **and** is applied on the node that proposed it, with a term check: the node replies OK only if the committed entry at that index is the one it proposed.
+
+## D-046: Timeouts (2026-11-16)
+
+**Server defaults:** tick 10 ms, election timeout drawn uniformly from 15 to 30 ticks (150 to 300 ms), heartbeat every 3 ticks (30 ms). Randomisation makes split votes rare. The heartbeat is several times shorter than the minimum timeout, so a single lost heartbeat does not trigger an election.
+**The trade-off:** shorter timeouts mean faster failover but more needless elections when the network or a GC-like pause stalls. Failover time is expected to be roughly timeout plus one election round trip. That is a prediction (B-018).
+
+## D-047: The no-op entry at the start of a term (2026-11-16)
+
+A new leader appends an empty entry of its own term. Without it, entries left uncommitted from earlier terms stay uncommitted until a client happens to write (figure 8 again), and reads routed through the log would wait for that write.
+
+## D-048: Check-quorum (2026-11-16)
+
+Once per maximum election timeout, a leader that has not heard an append reply from a majority steps down to follower, keeping its term. That stops a leader cut off by a partition from accepting proposals it can never commit. Its clients get "not leader" and go and find the real leader. It also limits how long two nodes can both believe they are leader (in different terms), which matters for any future lease-based read. Without leases, safety does not depend on it, because every read goes through the log.
+
+## D-049: FileStorage for Raft (2026-11-16)
+
+`raft-meta` (term and vote) is replaced atomically (D-039). Vote and term are written in one file, so "voted in term T" can never be persisted without T itself. `raft-log` is a framed log (D-037) of APPEND(index, term, data) and TRUNCATE(from) records, fsynced per call (one sync per proposal batch or per append message). The whole log is held in memory. **Not built:** log compaction and snapshots, so the log grows forever and a restart replays everything.
+
+## D-050: Out of scope for the Raft implementation (2026-11-16)
+
+Not implemented, on purpose:
+- Membership change: the cluster is fixed at start.
+- Log compaction and InstallSnapshot.
+- PreVote: a node that was partitioned away rejoins with a higher term and forces an election.
+- Leader leases and ReadIndex: every read is a log entry, which is linearizable but costs a replication round trip and an fsync.
+- Pipelining limits beyond "optimistic next index".
+- Flow control.
+
+Each item is a known interview follow-up: say what it fixes and what it costs.
+
+## D-051: Exactly-once client sessions (2026-11-16)
+
+Each client sends `(client_id, seq)` and keeps the same seq on every retry of a request. The state machine stores the last seq and its result per client, and answers a duplicate from that table. The table is replicated state, so every node decides the same way. A client has one request in flight.
+**Why:** a client whose request timed out cannot know if it committed. Without sessions, a retried Put could be applied twice, and the second application could land after another client's later write. **Not built:** session expiry. The table grows with the number of distinct clients.
+
+## D-052: The deterministic cluster simulator (2026-11-16)
+
+`tests/raft_sim.h`: N `RaftNode`s with `MemoryStorage`. Messages are delivered after random delays, so they reorder. Messages can be dropped, partitions block links, and a crash destroys the node object but keeps its storage. Simulated clients have per-attempt timeouts, leader hints and give-up as "unknown outcome". Every message goes through the wire codec. The simulator checks election safety, state machine safety and convergence, and runs the linearizability checker on the client history. Random numbers come from `mt19937_64` with our own float conversion, so a seed reproduces identically under libc++ and libstdc++ (`std::uniform_real_distribution` does not).
+
+## D-053: Cluster networking (2026-11-16)
+
+Plain POSIX TCP, length-prefixed frames (u32, capped at 64 MiB), TCP_NODELAY, no SIGPIPE, send timeouts. Raft and clients use separate ports. Threads: one loop thread owns RaftNode and the state machine, with one sender thread per peer (drops messages when the peer is down; Raft retransmits) and one reader thread per connection.
+**Rejected:** an event loop (epoll/kqueue). Two backends, and thread-per-connection is fine for 3 nodes and tens of clients. gRPC: too old on Ubuntu 22.04.
+**Known limit:** reader threads of closed connections are joined only at shutdown.
+
+## D-054: The node's request path (2026-11-16)
+
+The loop drains its inbox, steps peer messages, and turns all client commands from that drain into one `Propose` (one durable append and one fsync for the batch: group commit at the Raft level). It then ticks, sends, and applies what has committed. When leadership is lost, pending requests are answered "retry", because they may still commit under the next leader, and the session table makes the client's retry safe.
+
+## D-055: Linearizability checker algorithm (2026-11-16)
+
+Wing and Gong's backtracking search with Lowe's memoisation of (set of linearized operations, model state), as in Porcupine. The model is one key: absent, or a value. The history is split per key first, which is valid because linearizability is local and every operation touches one key. Each key's search has a step budget; past it the verdict is "gave up", never "linearizable".
+**Tested against itself:** known-good and known-bad histories (stale read, lost write, value never written, non-monotonic reads, impossible delete results), 200 random sequential histories (must pass) each corrupted once (must fail), real stores recorded under threads, and a deliberately broken store that must be caught.
+
+## D-056: Operations with unknown outcome (2026-11-16)
+
+A timed-out write may have taken effect at any moment after its invocation, or never. The checker gives it no return event, and the search succeeds once every *known* operation is placed, so unknown writes are either placed somewhere after their call or left out. Unknown reads are dropped, since they constrain nothing. Recording an unknown write as "failed" would be wrong: the checker would then reject correct histories.
+
+## D-057: Recording histories (2026-11-16)
+
+Times are `steady_clock` on the recording machine (microseconds in `kvctl history`, simulator ticks in tests). The clients run on one machine, so their clocks are the same clock. Comparing timestamps from different machines would need clock bounds; that is not attempted. Recording happens around each client call, outside the measured system, and each client buffers its own operations and merges them at the end, so recording does not add contention between clients.
+
+## D-058: Chaos runs and reproduction (2026-11-16)
+
+`tests/chaos_test.cpp`: 200 seeded runs on 3 nodes and 100 on 5 nodes, with 5% message loss, delays of 1 to 6 ticks, crashes and partitions, each followed by a check of safety, convergence and linearizability. The test also asserts the faults happened (more than 100 crashes and 100 partitions over the 200 runs), so "no violations" cannot come from a run where nothing went wrong. A failing seed replays with `LLDSTORE_CHAOS_SEED`. Real-process versions: `scripts/chaos_local.sh` (kill -9) and `scripts/chaos_partition_linux.sh` (iptables and netem; root). **No run yet, so no bug log yet.** The phase's "log of bugs found and fixed" starts with the first run.
+
+## D-059: How the [HAND-WRITE] gap is recorded (2026-11-16)
+
+The plan says Ratul writes the allocator, the log writer and recovery, replication and election, and the epoch manager. All of them were written by Claude. To keep the project defensible:
+- `docs/INTERVIEW_NOTES.md` has a drill for each phase, with model answers labelled as Claude's and defend-it questions.
+- `docs/LEARNING_NOTES.md` records each section as "not yet learned".
+
+Nothing in these phases should go on a CV until Ratul can explain it unaided.
+
+## D-060: Metrics (2026-11-16)
+
+`MetricsRegistry`: atomic counters and gauges, plus histograms (the Phase 0 log-linear histogram behind a mutex), rendered in the Prometheus text format and served over HTTP by `kvnode --metrics`. Histograms are exported as summaries (p50/p90/p99/p99.9 per node).
+**The rule to defend:** quantiles cannot be averaged across nodes or time windows. A cluster p99 needs merged distributions, as `kvctl bench` does from its own histograms.
+**Rejected:** Prometheus histogram buckets (fixed bucket bounds lose the 1/64 relative precision); a client library (one more dependency).
+
+## D-061: Epoch-based reclamation rather than hazard pointers or RCU (2026-11-16)
+
+| Option | Read cost | Writer frees after | Stalled reader |
+|---|---|---|---|
+| EBR (chosen) | two stores and a fence per *guard* | two epoch advances | blocks all reclamation (memory grows) |
+| Hazard pointers | a store and a fence per *pointer* followed | a scan of all hazards | blocks only what it protects |
+| Userspace RCU (liburcu) | near zero (QSBR) | a grace period | blocks grace periods |
+
+EBR is the simplest to get right and cheapest for readers who look at many nodes per guard. Its weakness, a reader stuck inside a guard, is tested and documented rather than solved.
+
+## D-062: The EBR contract (2026-11-16)
+
+- One writer thread retires, and only it advances the epoch.
+- Readers register a slot (128 maximum), and only that thread uses the slot.
+- Guards can be nested, and the outermost one announces the epoch.
+- A node retired in epoch r is freed once the epoch reaches r + 2.
+
+Single-writer advancing is what makes the happens-before argument short: the advancing store and the unlinks are in the same thread.
+
+## D-063: The memory-order argument for EBR (2026-11-16)
+
+Reader: store its epoch e, then a seq_cst fence, then re-read the global epoch, and retry until the two are equal. Only then does it load pointers (acquire). Writer: unlink (release), then a seq_cst fence before reading every slot (acquire), then advance only if every active reader is at the current epoch.
+- The two fences give a Dekker-style guarantee: either the writer sees the reader's announcement and does not advance, or the reader sees the unlink and cannot pick up the removed node.
+- The reader's leave is a release store, and the writer's acquire load of it orders every read the reader did before the free.
+
+**Defend this on paper; x86 will not show you a mistake here, and arm64 might.**
+
+## D-064: RcuMap, a single-writer map with lock-free reads (2026-11-16)
+
+Chains of immutable nodes. The writer replaces rather than mutates. A Put to an existing key publishes a copy with the same `next`. A Delete unlinks the node but leaves the node's own `next` intact, so a reader standing on it can walk on. Resize builds a whole new table and publishes it with one release store; the old table and its nodes are retired together.
+- `Get` returns a view valid for the life of the guard.
+- `UnsafeRcuMap` frees immediately. It exists only so that a test (ASan preset, death test) proves the naive version is a use-after-free.
+- The concurrency test has 4 readers and one writer making 50,000 updates. Values carry their own CRC and a version that must never go backwards for a reader.
+- **Not integrated** into ShardedStore or DurableStore: it is the building block for the fuzzy checkpoint (D-043) and for background readers.
+
+## D-065: Delivery (2026-11-16)
+
+- A multi-stage `Dockerfile` (Ubuntu 24.04 builder, slim runtime).
+- `docker-compose.yml` with 3 nodes and Prometheus.
+- CI with all presets on Linux and macOS, plus benchmark smoke runs, a cluster smoke test with a killed leader and two chaos runs, and a Docker build.
+- `deploy/aws/` has `cluster.sh up|status|bench|down`, user-data, a CloudWatch agent config and alarms. **None of it has run.** No GitHub remote has run CI either, and no AWS resource was created.
+- Container and cloud numbers are always labelled as such, and never compared with bare-metal numbers as if they were the same setup.
+
+## D-066: What "finished" means here (2026-11-16)
+
+The code for every phase exists and builds. "Done" in `docs/PHASES.md` also needs: the tests passing (none of Phases 3 to 11 have fully run), sanitizer runs, the measurements (B-011 to B-019 are all planned, not measured), and Ratul being able to defend the design. The remaining work is a runbook (`docs/LINUX_RUNBOOK.md`), not more code. Expect the first runs to find bugs. That is the point of running them, and each one goes in this file with its cause.
+
+---
+
 ## Open questions
 
 - Apple clang is 21.0.0. Whether `std::hardware_destructive_interference_size` is available is still to verify in Phase 5.

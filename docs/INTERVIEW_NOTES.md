@@ -264,7 +264,138 @@ The claim is narrow:
 7. Where does the resize pause show up in a benchmark, and in which kind of benchmark does it not show up?
 8. The hash seed is fixed. Who could exploit that, and how would you fix it?
 
+## Phases 6 to 11 drills: model answers (written by Claude, NOT Ratul's own, NOT graded)
+
+Ratul asked Claude to finish the project in one go (2026-11-16). None of this code has run. Answer each question in your own words before treating these phases as yours. The design records are `docs/DESIGN.md` D-031 to D-066.
+
+### Phase 6: memory management
+
+**Q1. Why does a per-shard slab allocator need no lock, and what would break it?**
+Only the shard's worker thread allocates and frees, because a Get copies the value out before replying, so no other thread holds shard memory. One owner means no lock and no atomics. It breaks the moment another thread frees a block, for example if the shard handed out a pointer instead of a copy. Two threads would then push onto the same free list and corrupt it. Real allocators handle this with a remote-free queue per owner (mimalloc, tcmalloc).
+
+**Q2. How did you prove zero hot-path allocations?**
+A test replaces global `operator new` with a counting version. That covers every thread in the process, including the shard workers. The test warms the store, then runs 80,000 mixed requests and asserts the count did not change. A control store that does allocate (one queue node per push) must show at least one allocation per request, so a counter that never counts cannot pass. Two allocations had to go: the queue node (fixed by an intrusive queue, with the link inside the stack-allocated request) and the entry (fixed by slab free lists, since Delete then Put reuses the block).
+
+**Q3. Requested bytes vs RSS: which do you report, and why can the slab look worse on one and better on the other?**
+RSS is what the machine pays. Requested bytes are what the program asked `operator new` for. The slab asks for 256 KiB chunks up front, so its requested bytes include unused chunk space. But it puts no 16 B malloc header on each block and rounds 92 B to 96 B, so its RSS per entry can be lower. Report both and say which one matters.
+
+**Q4. What is the cost of never returning chunks?**
+Peak memory is kept forever, and memory is stuck in the wrong size class after the workload changes. The fix would be per-chunk live counts and `madvise(MADV_DONTNEED)` on empty chunks, at the price of bookkeeping on every free.
+
+**Q5. Why poison freed slab blocks for ASan?**
+To ASan the whole chunk is one live allocation, so a use-after-free into a recycled block would be invisible. Poisoning restores the detection the project relies on.
+
+Defend-it questions: (1) Walk through `ClassIndex(200)` by hand. (2) Why does `FlatStore` ask for `UsableSize` and store the spare bytes? (3) In the intrusive queue, why may the consumer re-link the stub without a race?
+
+### Phase 7: durability
+
+**Q1. When exactly is a write acknowledged, and what does fsync not guarantee?**
+After the fdatasync that covers its record has returned, and not before. fsync does not guarantee anything if the drive lies about its volatile cache (consumer SSDs without power-loss protection, and macOS unless you use `F_FULLFSYNC`). It does not make a newly created file's directory entry durable; that needs an fsync of the directory. And after an fsync *error* it does not mean "retry will work": the kernel may have dropped the pages (fsyncgate), so we fail the log and recover from disk.
+
+**Q2. Explain group commit and why it raises throughput without lowering durability.**
+Concurrent writers append to a shared buffer. One flusher writes the batch and does one fdatasync, then wakes everyone whose records it covered. Each writer still waits for a sync that covers its own record, so durability is unchanged, but N writers share one sync. Throughput rises roughly with the batch size until bandwidth or the append mutex limits it.
+
+**Q3. Recovery finds a bad record in the middle. Why stop there rather than skip it?**
+Records are written in order and acknowledged only after the covering sync, so a damaged record is part of the unacknowledged tail. A valid-looking record after it is either garbage or a write the disk reordered, and in both cases it was never acknowledged. Skipping could apply records out of order or resurrect a write whose client saw a failure.
+
+**Q4. Why must a read wait for durability too?**
+Memory is updated before the sync completes. A reader that returns an applied but undurable value could show a client data that a crash then erases: the client observed something that, after recovery, never happened.
+
+**Q5. Walk through a checkpoint and a crash at each step.**
+Wait for the log to be durable, write the snapshot to a tmp file, fsync, rename, fsync the directory, create the next log generation, delete older logs, fsync the directory.
+- Crash before the rename: the old snapshot and the old logs are both complete.
+- Crash after the rename: the new snapshot names the next generation, so recovery creates or continues that log and deletes the stale ones.
+
+Defend-it questions: (1) Why does the CRC cover the length field? (2) What does the crash test check, and why can the store hold a *later* value than the last acknowledged one? (3) What happens to a waiter if the checkpoint swaps the log object while it waits?
+
+### Phase 8: replication (Raft)
+
+**Q1. Why does Raft vote only for a candidate whose log is at least as up to date as yours?**
+A committed entry is on a majority. A winning candidate needs votes from a majority. Any two majorities overlap, so at least one voter has the entry, and that voter refuses a candidate that lacks it. So every leader holds every committed entry (Leader Completeness).
+
+**Q2. Why may a leader count replicas only for entries of its own term (figure 8)?**
+An entry from an old term can be on a majority and still be overwritten. A later leader that never received it can win with votes from nodes whose logs have a higher last term. If the current leader commits an entry of its own term on a majority, any future leader must have that entry, and so, by Log Matching, everything before it.
+
+**Q3. What are the no-op entry and check-quorum for?**
+- **The no-op:** it lets a new leader commit the earlier-term entries it inherited straight away, without waiting for a client write.
+- **Check-quorum:** a leader that has not heard from a majority within an election timeout steps down, so clients stop sending to a leader that cannot commit.
+
+Neither is needed for safety; both are needed for good liveness.
+
+**Q4. A client times out. Did its write happen? How do you make the retry safe?**
+The client cannot know. The entry may still commit. It retries with the same (client_id, seq), and the replicated session table answers a duplicate from its memory instead of applying it twice. In a history, a request that never got an answer is "unknown", not "failed".
+
+**Q5. Why is the core a deterministic state machine?**
+So the same code runs under a simulator where a seed fixes every delay, drop, partition and crash. A failing run then reproduces exactly. That is how consensus bugs, which hide in rare interleavings, get found and fixed.
+
+Defend-it questions: (1) Why are term and vote persisted in one atomic write? (2) Why does a follower skip entries it already has, rather than truncate and rewrite? (3) What does `next_index` optimistic pipelining risk, and how does the conflict hint recover? (4) What did you NOT implement, and what goes wrong without each piece (PreVote, compaction, membership change)?
+
+### Phase 9: epoch-based reclamation
+
+**Q1. Why is `delete` immediately after unlinking unsafe without a lock?**
+A reader may have loaded the pointer just before the unlink and be about to read the node. The unlink stops new readers from finding it, not old ones. The test shows it deterministically: a reader holds a view, the writer deletes, and under ASan the read is a heap-use-after-free.
+
+**Q2. Explain EBR in four sentences.**
+- A global epoch counter, and every reader announces the epoch it entered (or "outside").
+- Removed nodes are retired with the epoch of their removal.
+- The epoch advances from g only when every reader inside has announced g.
+- A node retired in r is freed at r + 2, by which time every reader that could have seen it has left.
+
+**Q3. What happens if a reader stalls inside a guard?**
+The epoch cannot advance, so nothing is freed and memory grows. Correctness is unaffected. This is EBR's weakness; hazard pointers bound the damage by protecting individual pointers, at the cost of a fence per pointer followed.
+
+**Q4. Why the seq_cst fences?**
+Two threads each store to one location and then load the other (the reader stores its slot and loads pointers; the writer stores the unlink and loads the slots). Without a full fence on both sides, both loads can see old values: the reader misses the unlink and the writer misses the announcement. Acquire/release cannot forbid that "store then load" reordering; seq_cst fences can.
+
+**Q5. How do readers survive a resize?**
+The writer builds a complete new table with new nodes, publishes it with one release store, and retires the old table and its nodes together. A reader inside the old table finishes there safely.
+
+Defend-it questions: (1) Why must the reader re-check the global epoch after announcing? (2) Why is only the writer allowed to advance the epoch? (3) What does the per-reader version check in the stress test catch?
+
+### Phase 10: correctness
+
+**Q1. Linearizability vs sequential consistency?**
+Both need one total order that is consistent with each client's program order. Linearizability also requires that if operation A finishes before B starts in real time, A comes before B. That real-time condition is what lets a client trust "my write returned, so everyone now sees it".
+
+**Q2. How does the checker work, and why per key?**
+It backtracks over which pending operation takes effect next, applying each to a model of one key, and memoises (set of operations placed, model state) so no state is explored twice. Linearizability is local: a history is linearizable if and only if each object's sub-history is. Splitting by key turns one huge search into many small ones.
+
+**Q3. How do you know the checker is not just saying "yes"?**
+- It must reject known-bad histories: a stale read, a lost write, a value never written, non-monotonic reads.
+- It must reject 200 randomly generated correct histories after one read in each is corrupted.
+- It must catch a deliberately broken store.
+
+**Q4. How are timeouts represented, and why does it matter?**
+As unknown outcomes: a write may be placed anywhere after its call, or left out. Treating a timed-out write as failed would make the checker reject correct histories. Treating it as succeeded would hide lost writes.
+
+**Q5. Why "hundreds of runs", and why assert that faults happened?**
+Bugs live in rare interleavings, and one clean run proves little. Asserting the crash and partition counts proves the runs exercised failures; otherwise "zero violations" might only mean nothing went wrong.
+
+Defend-it questions: (1) How is a failing seed replayed? (2) What does `scripts/chaos_partition_linux.sh` change on the machine, and how does it clean up?
+
+### Phase 11: observability and delivery
+
+**Q1. Why can't you average p99 across nodes?**
+A percentile is not linear. Two nodes with p99 = 10 ms and 100 ms do not give a cluster p99 of 55 ms; it depends on the request counts and the shape of each distribution. You merge the histograms and take the percentile of the merged one.
+
+**Q2. What would you alarm on, and why?**
+- A node that stops reporting (crashed or partitioned).
+- Election churn (unstable timeouts or a flaky network).
+- p99 latency per node (users feel tails).
+
+**Q3. Why is a benchmark inside Docker not a bare-metal number?**
+Shared kernel, cgroup CPU limits, an overlay or bridge network, and noisy neighbours. It is a different setup and must be labelled as one.
+
+**Q4. What does CI prove and what does it not?**
+It proves the code builds and the tests pass under every sanitizer on two operating systems, and that the cluster survives a leader kill on a CI runner. It does not prove performance: CI machines are shared and noisy, so the benchmark jobs are smoke runs only.
+
+**Q5. How do you avoid a surprise cloud bill?**
+Tag every resource, delete by tag (`cluster.sh down`), set a billing alarm first, and estimate before starting: about US$0.30/hour for 4 small instances, about US$220/month if forgotten.
+
+---
+
 ## Still owed (carry forward)
 - Phase 5 pre-check above, in your own words.
 - Phase 3 and Phase 4 drills: model answers are above (Claude's, not graded); answer in your own words when ready.
 - Phase 1 drill Q4 and Q5, and the Phase 2 pre-check Q1 and Q2: retry in your own words.
+- Phases 6 to 11 drills: model answers above are Claude's, not graded. Answer each, and the defend-it questions, in your own words.
